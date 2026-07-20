@@ -31,14 +31,16 @@ export async function POST(req: NextRequest) {
           break;
         }
         
-        // Save to Supabase for persistence
+        // Save to Supabase for persistence as PENDING
         const { error: insertError } = await supabase
           .from('alert_subscriptions')
           .insert([{
             crop,
             location,
             condition: condition || 'above',
-            target_price
+            target_price,
+            status: 'pending',
+            phone_number: 'web-user' // hardcoded for web demo
           }]);
 
         if (insertError) {
@@ -51,10 +53,61 @@ export async function POST(req: NextRequest) {
           location,
           condition: condition || 'above',
           target_price,
-          status: 'listening'
+          status: 'pending'
         };
 
-        finalResponse = `Done! I have set an alert. I will physically call you back as soon as the price of ${crop} in ${location} goes ${condition || 'above'} ₹${target_price}.`;
+        finalResponse = `I am ready to set an alert. I will call you when the price of ${crop} in ${location} goes ${condition || 'above'} ₹${target_price}. Please say 'Yes' to confirm, or 'No' to cancel.`;
+        break;
+      }
+
+      case 'confirm_action': {
+        // Find the most recent pending alert for this user
+        const { data, error } = await supabase
+          .from('alert_subscriptions')
+          .select('*')
+          .eq('phone_number', 'web-user')
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (data && data.length > 0) {
+          const alertId = data[0].id;
+          await supabase
+            .from('alert_subscriptions')
+            .update({ status: 'active' })
+            .eq('id', alertId);
+          
+          finalResponse = `Confirmed! Your alert for ${data[0].crop} is now active.`;
+          
+          // Re-emit agenticAction so the dashboard turns green
+          agenticAction = { ...data[0], status: 'active' };
+        } else {
+          finalResponse = "I'm sorry, I don't see any pending actions to confirm.";
+        }
+        break;
+      }
+
+      case 'cancel_action': {
+        // Find the most recent pending alert for this user
+        const { data, error } = await supabase
+          .from('alert_subscriptions')
+          .select('*')
+          .eq('phone_number', 'web-user')
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (data && data.length > 0) {
+          const alertId = data[0].id;
+          await supabase
+            .from('alert_subscriptions')
+            .update({ status: 'cancelled' })
+            .eq('id', alertId);
+          
+          finalResponse = `No problem. I have cancelled the alert.`;
+        } else {
+          finalResponse = "I'm sorry, I don't see any pending actions to cancel.";
+        }
         break;
       }
 

@@ -3,6 +3,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { supabase } from '@/lib/data/supabase';
 
+const SUGGESTIONS = [
+  { icon: '🌾', text: 'What is the price of wheat in Surat?' },
+  { icon: '⛅', text: 'Will it rain tomorrow in Jamnagar?' },
+  { icon: '🔔', text: 'Alert me when wheat goes above 2500 in Ahmedabad' }
+];
+
 export default function Home() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -20,7 +26,6 @@ export default function Home() {
   const audioChunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
-  // Fetch persistent alerts from Supabase on load
   useEffect(() => {
     const fetchAlerts = async () => {
       const { data, error } = await supabase
@@ -36,7 +41,6 @@ export default function Home() {
     };
     fetchAlerts();
     
-    // Cleanup audio player on unmount
     return () => {
       if (audioPlayerRef.current) {
         audioPlayerRef.current.pause();
@@ -47,7 +51,6 @@ export default function Home() {
 
   const speakResponse = async (text: string) => {
     try {
-      // 1. Fetch the Google TTS audio URL from our backend
       const res = await fetch('/api/engine/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -56,7 +59,6 @@ export default function Home() {
       const data = await res.json();
       
       if (data.url) {
-        // 2. Play the audio
         if (audioPlayerRef.current) {
           audioPlayerRef.current.pause();
         }
@@ -78,7 +80,6 @@ export default function Home() {
 
   const startRecording = async () => {
     try {
-      // Stop TTS if user starts speaking again
       if (audioPlayerRef.current) {
         audioPlayerRef.current.pause();
         setIsSpeaking(false);
@@ -119,6 +120,7 @@ export default function Home() {
   const handleAudioSubmit = async (audioBlob: Blob) => {
     setLoading(true);
     setResult(null);
+    setQuery('');
 
     try {
       const formData = new FormData();
@@ -131,25 +133,33 @@ export default function Home() {
 
       const transcribeData = await transcribeRes.json();
       
-      if (transcribeData.error) {
-        throw new Error(transcribeData.error);
-      }
+      if (transcribeData.error) throw new Error(transcribeData.error);
 
       const transcribedText = transcribeData.text;
+
+      // Handle Whisper hallucination on silent audio
+      if (!transcribedText || transcribedText.trim().toLowerCase() === 'you' || transcribedText.trim() === '') {
+        setResult({ error: "I couldn't hear anything. Please check if your computer's microphone is muted in Windows settings." });
+        setLoading(false);
+        return;
+      }
+
       setQuery(transcribedText);
 
       if (transcribedText) {
         await processTextQuery(transcribedText);
       }
-
     } catch (err: any) {
-      console.error(err);
       setResult({ error: err.message || 'Failed to process voice request.' });
       setLoading(false);
     }
   };
 
   const processTextQuery = async (textToProcess: string) => {
+    setLoading(true);
+    setResult(null);
+    setQuery(textToProcess);
+    
     try {
       const res = await fetch('/api/engine/process', {
         method: 'POST',
@@ -160,15 +170,18 @@ export default function Home() {
       const data = await res.json();
       setResult(data);
 
-      if (data.agenticAction) {
-        setActiveAlerts(prev => [data.agenticAction, ...prev]);
+      if (data.agenticAction && data.agenticAction.status === 'active') {
+        setActiveAlerts(prev => {
+          // Prevent duplicates in UI
+          const exists = prev.find(a => a.id === data.agenticAction.id);
+          if (exists) return prev;
+          return [data.agenticAction, ...prev];
+        });
       }
       
-      // TRIGGER UPGRADED TEXT-TO-SPEECH
       if (data.response) {
         await speakResponse(data.response);
       }
-      
     } catch (err) {
       setResult({ error: 'Failed to process request.' });
     } finally {
@@ -179,81 +192,122 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query) return;
-    setLoading(true);
-    setResult(null);
     await processTextQuery(query);
   };
 
+  const handleSuggestionClick = (text: string) => {
+    processTextQuery(text);
+  };
+
   return (
-    <main className="min-h-screen bg-[#0f172a] text-slate-200 font-sans selection:bg-emerald-500/30 flex flex-col">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden bg-slate-900 border-b border-slate-800 shrink-0">
-        <div className="absolute inset-0 bg-[url('https://grain.com/images/grain-pattern.png')] opacity-5 mix-blend-overlay"></div>
-        <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent"></div>
-        
-        <div className="max-w-6xl mx-auto px-6 py-16 relative z-10 text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-sm font-medium mb-6 border border-emerald-500/20">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            Upgraded Realistic Voice AI (Phase 7)
-          </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-white mb-4">
-            Proactive Voice AI for <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">Bharat</span>
-          </h1>
-          <p className="text-lg text-slate-400 max-w-2xl mx-auto leading-relaxed">
-            Experience the new, 100% free Google TTS Engine integration providing a natural-sounding Indian female voice.
-          </p>
-        </div>
+    <main className="min-h-screen bg-slate-50 text-slate-800 font-sans selection:bg-green-600/20 flex flex-col relative overflow-hidden">
+      
+      {/* Background Gradient Mesh (Glassmorphism effect) */}
+      <div className="fixed inset-0 z-0 pointer-events-none opacity-40">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-green-200 mix-blend-multiply filter blur-[100px] animate-float" style={{ animationDelay: '0s' }}></div>
+        <div className="absolute top-[20%] right-[-5%] w-[35%] h-[35%] rounded-full bg-orange-100 mix-blend-multiply filter blur-[100px] animate-float" style={{ animationDelay: '2s' }}></div>
+        <div className="absolute bottom-[-10%] left-[20%] w-[50%] h-[50%] rounded-full bg-emerald-100 mix-blend-multiply filter blur-[120px] animate-float" style={{ animationDelay: '4s' }}></div>
       </div>
 
-      {/* Main Console & Sidebar */}
-      <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 flex flex-col lg:flex-row gap-8">
+      {/* Header / Hero Section */}
+      <header className="relative z-10 bg-white/70 backdrop-blur-md border-b border-white/50 shadow-[0_4px_30px_rgba(0,0,0,0.03)] shrink-0">
+        <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-orange-400 via-green-500 to-orange-400"></div>
+        <div className="max-w-6xl mx-auto px-6 py-10 text-center">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white text-green-700 text-sm font-semibold mb-5 border border-green-100 shadow-sm transition-transform hover:scale-105 cursor-default">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            </span>
+            Agentic AI for Bharat (v1.1)
+          </div>
+          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-800 mb-4">
+            Voice-First Intelligence for <span className="text-green-600">Agriculture</span>
+          </h1>
+          <p className="text-lg text-slate-500 max-w-2xl mx-auto font-medium">
+            Real-time market insights, proactive weather alerts, and intelligent voice interactions in your native language.
+          </p>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <div className="relative z-10 flex-1 max-w-7xl mx-auto w-full px-6 py-8 flex flex-col lg:flex-row gap-8">
         
         {/* Left Column: Input & Output */}
         <div className="flex-1 flex flex-col">
-          <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-6 backdrop-blur-sm shadow-2xl mb-8">
-            <div className="flex justify-center mb-8">
+          
+          {/* Main Interaction Card (Glassmorphism) */}
+          <div className="bg-white/80 backdrop-blur-xl border border-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-3xl p-8 mb-8 relative group transition-all duration-500 hover:shadow-[0_8px_40px_rgb(0,0,0,0.08)]">
+            
+            <div className="flex flex-col items-center justify-center mb-8">
+              <p className="text-slate-400 text-sm font-bold mb-5 uppercase tracking-widest">
+                {isRecording ? 'Listening to you...' : 'Tap to Speak'}
+              </p>
+              
               <button
                 onClick={isRecording ? stopRecording : startRecording}
-                className={`relative flex items-center justify-center w-24 h-24 rounded-full transition-all duration-300 shadow-2xl ${
+                className={`relative flex items-center justify-center w-32 h-32 rounded-full transition-all duration-500 shadow-xl ${
                   isRecording 
-                    ? 'bg-red-500 hover:bg-red-600 animate-pulse ring-8 ring-red-500/20' 
-                    : 'bg-emerald-500 hover:bg-emerald-400 hover:scale-105'
+                    ? 'bg-red-500 hover:bg-red-600 scale-110 shadow-red-500/40' 
+                    : 'bg-gradient-to-br from-green-500 to-green-600 hover:from-green-400 hover:to-green-500 hover:scale-105 hover:shadow-green-500/30'
                 }`}
               >
+                {/* Ripple Effect when recording */}
                 {isRecording && (
-                  <span className="absolute -inset-4 rounded-full border-2 border-red-500 animate-ping opacity-20"></span>
+                  <>
+                    <span className="absolute inset-0 rounded-full border-4 border-red-400 animate-ping opacity-30"></span>
+                    <span className="absolute -inset-4 rounded-full border-2 border-red-300 animate-ping opacity-20" style={{ animationDelay: '300ms' }}></span>
+                  </>
                 )}
-                <svg className={`w-10 h-10 ${isRecording ? 'text-white' : 'text-slate-900'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  {isRecording ? (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-                  ) : (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                  )}
-                </svg>
+                
+                {/* Dynamic Icon */}
+                {isRecording ? (
+                  <div className="flex items-center gap-1.5 h-8">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="w-1.5 bg-white rounded-full animate-waveform" style={{ animationDelay: `${i * 150}ms` }}></div>
+                    ))}
+                  </div>
+                ) : (
+                  <svg className="w-12 h-12 text-white drop-shadow-md" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                  </svg>
+                )}
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="relative">
-              <div className="relative">
+            {/* Suggestion Chips */}
+            <div className="flex flex-wrap justify-center gap-2 mb-6">
+              {SUGGESTIONS.map((sug, idx) => (
+                <button 
+                  key={idx}
+                  onClick={() => handleSuggestionClick(sug.text)}
+                  disabled={loading || isRecording}
+                  className="bg-slate-100 hover:bg-green-50 text-slate-600 hover:text-green-700 hover:border-green-200 border border-transparent text-sm font-medium px-4 py-2 rounded-full transition-all duration-300 transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <span>{sug.icon}</span>
+                  {sug.text}
+                </button>
+              ))}
+            </div>
+
+            <form onSubmit={handleSubmit} className="relative mt-2">
+              <div className="relative group/input">
                 <input
                   id="query"
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Or type here..."
-                  className="w-full bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-4 pr-32 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all text-lg"
+                  placeholder="Type your query manually..."
+                  className="w-full bg-white border-2 border-slate-100 rounded-2xl px-6 py-4 pr-32 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-green-400 focus:ring-4 focus:ring-green-500/10 transition-all text-lg shadow-inner"
                   autoComplete="off"
                 />
                 <button
                   type="submit"
                   disabled={loading || !query || isRecording}
-                  className="absolute right-2 top-2 bottom-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="absolute right-2 top-2 bottom-2 bg-slate-800 hover:bg-slate-900 text-white font-medium px-6 rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 shadow-md hover:shadow-lg"
                 >
                   {loading ? (
-                    <svg className="animate-spin h-5 w-5 text-slate-900" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                   ) : 'Send'}
                 </button>
               </div>
@@ -261,68 +315,71 @@ export default function Home() {
           </div>
 
           {/* Results Area */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden flex-1 flex flex-col min-h-[300px]">
-            <div className="bg-slate-800/80 px-4 py-3 border-b border-slate-700 flex items-center justify-between">
-              <span className="text-xs font-semibold tracking-wider text-slate-400 uppercase">Engine Response Pipeline</span>
-              {isSpeaking && (
-                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-cyan-500/10 border border-cyan-500/20">
-                  <span className="text-xs font-medium text-cyan-400 uppercase tracking-wider">Voice: Active (Google)</span>
-                  <div className="flex gap-0.5 h-3 items-end">
-                    <div className="w-1 bg-cyan-400 rounded-t-sm animate-[bounce_0.8s_infinite_0s]"></div>
-                    <div className="w-1 bg-cyan-400 rounded-t-sm animate-[bounce_0.8s_infinite_0.2s]"></div>
-                    <div className="w-1 bg-cyan-400 rounded-t-sm animate-[bounce_0.8s_infinite_0.4s]"></div>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="p-6 flex-1 overflow-auto">
-              {!result && !loading && !isRecording && (
-                <div className="h-full flex items-center justify-center text-slate-600 text-sm">Awaiting simulation input...</div>
-              )}
+          <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex-1 flex flex-col min-h-[350px]">
+            <div className="bg-slate-50/80 px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <span className="text-xs font-bold tracking-widest text-slate-400 uppercase flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                Engine Response
+              </span>
               
-              {isRecording && (
-                <div className="h-full flex items-center justify-center flex-col gap-4">
-                  <div className="text-red-400 font-medium animate-pulse">Listening to your voice...</div>
-                  <div className="flex items-center gap-1">
-                    {[...Array(5)].map((_, i) => (
-                      <div key={i} className="w-1.5 bg-red-500 rounded-full animate-ping" style={{ height: `${Math.random() * 20 + 10}px`, animationDelay: `${i * 100}ms` }}></div>
+              {isSpeaking && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 border border-green-200 animate-slide-up">
+                  <span className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Voice Active</span>
+                  <div className="flex items-center gap-0.5 h-3">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} className="w-1 bg-green-600 rounded-full animate-waveform" style={{ animationDelay: `${i * 200}ms` }}></div>
                     ))}
                   </div>
                 </div>
               )}
+            </div>
+            
+            <div className="p-8 flex-1 overflow-auto">
+              {!result && !loading && (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4">
+                  <svg className="w-12 h-12 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                  <p className="text-sm font-medium">Ready to assist you.</p>
+                </div>
+              )}
 
-              {loading && !isRecording && (
-                <div className="h-full flex flex-col items-center justify-center gap-4">
-                  <div className="flex gap-2">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              {loading && (
+                <div className="h-full flex flex-col items-center justify-center gap-6 animate-in fade-in">
+                  <div className="relative w-16 h-16">
+                    <div className="absolute inset-0 rounded-full border-4 border-slate-100"></div>
+                    <div className="absolute inset-0 rounded-full border-4 border-green-500 border-t-transparent animate-spin"></div>
                   </div>
-                  <div className="text-emerald-500/70 text-sm animate-pulse text-center">
-                    {!query ? 'Transcribing audio with Whisper...' : 'Analyzing intent and saving to Database...'}
+                  <div className="text-slate-500 font-medium text-sm animate-pulse">
+                    {!query ? 'Transcribing audio...' : 'Analyzing intent with AI...'}
                   </div>
                 </div>
               )}
 
               {result && result.error && (
-                <div className="text-red-400 font-medium">Error: {result.error}</div>
+                <div className="bg-red-50 text-red-700 border border-red-200 p-5 rounded-2xl font-medium animate-slide-up flex items-start gap-3">
+                  <svg className="w-6 h-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                  {result.error}
+                </div>
               )}
 
               {result && !result.error && (
-                <div className="space-y-6 animate-in fade-in duration-500">
-                  <div>
-                    <h3 className="text-xs text-slate-500 uppercase tracking-wider mb-2 font-semibold">1. Synthesized Voice Reply (Google TTS)</h3>
-                    <div className={`bg-emerald-500/10 border rounded-lg p-5 text-emerald-300 font-medium text-lg leading-relaxed transition-all duration-500 ${isSpeaking ? 'border-cyan-500/50 shadow-[inset_0_0_30px_rgba(6,182,212,0.15)]' : 'border-emerald-500/30 shadow-[inset_0_0_20px_rgba(16,185,129,0.05)]'}`}>
+                <div className="space-y-8">
+                  <div className="animate-slide-up" style={{ animationDelay: '0ms' }}>
+                    <h3 className="text-[11px] text-slate-400 uppercase tracking-widest mb-3 font-bold ml-2">AI Response</h3>
+                    <div className={`bg-white border rounded-2xl p-6 text-slate-800 font-medium text-xl leading-relaxed transition-all duration-500 relative overflow-hidden ${isSpeaking ? 'border-green-300 shadow-[0_8px_30px_rgba(22,163,74,0.12)] ring-4 ring-green-500/10' : 'border-slate-200 shadow-sm'}`}>
+                      {isSpeaking && <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>}
                       "{result.response}"
                     </div>
                   </div>
 
                   {result.intent && (
-                    <div>
-                      <h3 className="text-xs text-slate-500 uppercase tracking-wider mb-2 font-semibold">2. Groq AI Intent Extraction</h3>
-                      <pre className="bg-slate-950 border border-slate-800 p-4 rounded-lg text-sm text-cyan-400 overflow-x-auto shadow-inner">
-                        {JSON.stringify(result.intent, null, 2)}
-                      </pre>
+                    <div className="animate-slide-up" style={{ animationDelay: '150ms' }}>
+                      <h3 className="text-[11px] text-slate-400 uppercase tracking-widest mb-3 font-bold ml-2">Extracted Logic</h3>
+                      <div className="bg-slate-900 rounded-2xl p-5 shadow-inner relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 px-3 py-1 bg-slate-800 text-slate-400 text-[10px] font-mono rounded-bl-lg">JSON</div>
+                        <pre className="text-sm text-green-400 font-mono overflow-x-auto">
+                          {JSON.stringify(result.intent, null, 2)}
+                        </pre>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -333,39 +390,52 @@ export default function Home() {
 
         {/* Right Column: Agentic Dashboard */}
         <div className="lg:w-80 flex flex-col gap-6">
-          <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5 backdrop-blur-sm shadow-xl flex-1 flex flex-col relative overflow-hidden">
+          <div className="bg-white/80 backdrop-blur-md border border-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-3xl p-6 flex-1 flex flex-col relative overflow-hidden transition-all hover:shadow-[0_8px_40px_rgb(0,0,0,0.06)]">
+            
             {/* Database indicator */}
-            <div className="absolute top-0 right-0 bg-emerald-500 text-slate-900 text-[10px] font-bold px-3 py-1 rounded-bl-lg shadow-md z-10 flex items-center gap-1">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
-              LIVE DB
+            <div className="absolute top-0 right-0 bg-gradient-to-r from-green-500 to-emerald-600 text-white text-[10px] font-bold px-4 py-1.5 rounded-bl-2xl shadow-sm z-10 flex items-center gap-1.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+              </span>
+              DB SYNCED
             </div>
 
-            <h3 className="text-sm font-semibold tracking-wider text-slate-300 uppercase flex items-center gap-2 mb-4">
-              <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-              Active Agentic Tasks
-            </h3>
+            <div className="mb-6 mt-2">
+              <h3 className="text-lg font-extrabold text-slate-800">Active Monitors</h3>
+              <p className="text-xs text-slate-500 font-medium mt-1">Real-time cron jobs via Supabase</p>
+            </div>
             
-            <div className="flex-1 overflow-auto space-y-3">
+            <div className="flex-1 overflow-auto space-y-4 pr-1">
               {activeAlerts.length === 0 ? (
-                <div className="text-sm text-slate-500 text-center py-8 border border-dashed border-slate-700 rounded-xl">
-                  No active monitors found in Supabase.<br/>Ask the engine to set a price alert!
+                <div className="flex flex-col items-center justify-center text-center py-12 px-4 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
+                  <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm mb-3">
+                    <svg className="w-6 h-6 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                  </div>
+                  <p className="text-sm font-medium text-slate-500">No active alerts.</p>
+                  <p className="text-xs text-slate-400 mt-1">Try setting a price alert.</p>
                 </div>
               ) : (
                 activeAlerts.map((alert, i) => (
-                  <div key={alert.id || i} className="bg-slate-900 border border-slate-700 p-4 rounded-xl animate-in fade-in slide-in-from-right-4 relative group">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded border border-emerald-400/20">Cron Job Active</span>
-                      <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>
+                  <div key={alert.id || i} className="bg-white border border-slate-100 p-5 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 hover:border-green-200 hover:-translate-y-1 relative group cursor-default animate-slide-up" style={{ animationDelay: `${i * 100}ms` }}>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[10px] font-bold text-green-700 bg-green-50 px-3 py-1 rounded-full border border-green-100 uppercase tracking-wider">Active</span>
+                      <button className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Cancel Alert">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
                     </div>
-                    <p className="text-sm text-slate-300 font-medium capitalize">
-                      {alert.crop} in {alert.location}
+                    <p className="text-base text-slate-800 font-extrabold capitalize leading-tight">
+                      {alert.crop} <span className="text-slate-400 font-medium text-sm">in</span> {alert.location}
                     </p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Target: {alert.condition} ₹{alert.target_price}
-                    </p>
+                    <div className="mt-3 inline-flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-2.5 py-1.5 rounded-lg">
+                      <svg className="w-3.5 h-3.5 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                      <p className="text-xs text-slate-600 font-bold">
+                        {alert.condition} ₹{alert.target_price}
+                      </p>
+                    </div>
                     {alert.id && (
-                      <p className="text-[9px] text-slate-600 mt-2 font-mono break-all group-hover:text-slate-400 transition-colors">
-                        DB ID: {alert.id.substring(0,8)}...
+                      <p className="text-[9px] text-slate-300 mt-3 font-mono break-all group-hover:text-slate-400 transition-colors">
+                        {alert.id}
                       </p>
                     )}
                   </div>
