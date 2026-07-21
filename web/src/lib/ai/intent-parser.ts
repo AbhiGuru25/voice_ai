@@ -94,10 +94,11 @@ export async function parseIntentWithGemini(query: string, userProfile?: any): P
     const parsed = JSON.parse(text);
     return {
       category: parsed.category || 'unknown',
+      language: parsed.language || 'en',
       parameters: parsed.parameters || {},
     };
   } catch (error) {
     console.error('Error parsing intent with Groq:', error);
-    return { category: 'unknown', parameters: {} };
+    return { category: 'unknown', language: 'en', parameters: {} };
   }
 }
