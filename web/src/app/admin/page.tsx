@@ -50,12 +50,12 @@ export default function AdminDashboard() {
   const schemeApplies = alerts.filter(a => a.condition === 'apply').length;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-8">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 md:p-8">
       
       {/* Header */}
-      <header className="mb-10 flex items-center justify-between">
+      <header className="mb-8 md:mb-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Agentic Command Center</h1>
+          <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Agentic Command Center</h1>
           <p className="text-slate-500 font-medium mt-1">Live metrics and interaction feeds across all channels (Web, IVR, WhatsApp)</p>
         </div>
         <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-full border border-slate-200 shadow-sm">
@@ -91,7 +91,7 @@ export default function AdminDashboard() {
         
         {/* Live Feed Table (Takes up 2/3) */}
         <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="bg-slate-900 px-6 py-4 flex justify-between items-center">
+          <div className="bg-slate-900 px-4 md:px-6 py-3 md:py-4 flex justify-between items-center">
             <h2 className="text-white font-bold tracking-wide">Live Interaction Feed</h2>
             {loading && <span className="text-xs text-slate-400">Syncing...</span>}
           </div>
@@ -140,10 +140,10 @@ export default function AdminDashboard() {
 
         {/* Database State (Takes up 1/3) */}
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[500px]">
-          <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
+          <div className="bg-slate-50 px-4 md:px-6 py-3 md:py-4 border-b border-slate-200">
             <h2 className="text-slate-800 font-bold tracking-wide">Active Subscriptions & Tasks</h2>
           </div>
-          <div className="p-6 flex-1 overflow-auto space-y-4">
+          <div className="p-4 md:p-6 flex-1 overflow-auto space-y-4">
             {alerts.length === 0 && !loading && (
               <div className="text-center text-slate-400 text-sm mt-10">Database is empty</div>
             )}

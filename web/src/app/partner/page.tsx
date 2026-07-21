@@ -54,18 +54,18 @@ export default function PartnerDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-8">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 md:p-8">
       
       {/* Header */}
-      <header className="mb-10 border-b border-slate-200 pb-6 flex justify-between items-end">
+      <header className="mb-8 md:mb-10 border-b border-slate-200 pb-4 md:pb-6 flex flex-col md:flex-row md:justify-between md:items-end gap-4">
         <div>
           <p className="text-emerald-600 font-bold uppercase tracking-wider text-sm mb-2">Partner Portal</p>
-          <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">Impact Dashboard</h1>
+          <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">Impact Dashboard</h1>
           <p className="text-slate-500 font-medium mt-2 max-w-2xl">
             Monitor the adoption and real-world value delivered to farmers in your network through the Voice AI platform.
           </p>
         </div>
-        <div className="text-right">
+        <div className="text-left md:text-right">
           <p className="text-sm font-medium text-slate-400">Current Period</p>
           <p className="text-lg font-bold text-slate-700">July 2026</p>
         </div>
@@ -74,20 +74,20 @@ export default function PartnerDashboard() {
       {/* Main KPI Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
         {/* KPI 1: Adoption */}
-        <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
+        <div className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200 shadow-sm">
           <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Total Farmers Enrolled</h3>
           <div className="flex items-baseline gap-3">
-            <p className="text-5xl font-extrabold text-slate-900">{totalFarmers.toLocaleString()}</p>
+            <p className="text-4xl md:text-5xl font-extrabold text-slate-900">{totalFarmers.toLocaleString()}</p>
             <span className="text-emerald-500 font-bold text-sm bg-emerald-50 px-2 py-1 rounded-full">+12% this week</span>
           </div>
           <p className="text-slate-400 text-sm mt-4">Farmers who have completed their profile via IVR or WhatsApp.</p>
         </div>
 
         {/* KPI 2: The ROI (Execution) */}
-        <div className="bg-emerald-600 rounded-3xl p-8 shadow-md text-white">
+        <div className="bg-emerald-600 rounded-3xl p-6 md:p-8 shadow-md text-white">
           <h3 className="text-emerald-100 text-sm font-bold uppercase tracking-wider mb-2">Value Actions Delivered</h3>
           <div className="flex items-baseline gap-3">
-            <p className="text-5xl font-extrabold">{totalExecutions.toLocaleString()}</p>
+            <p className="text-4xl md:text-5xl font-extrabold">{totalExecutions.toLocaleString()}</p>
           </div>
           <p className="text-emerald-50 text-sm mt-4">
             Total times the AI successfully connected a farmer to a buyer, applied for a scheme, or rescheduled a task.
@@ -95,10 +95,10 @@ export default function PartnerDashboard() {
         </div>
 
         {/* KPI 3: Engagement */}
-        <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
+        <div className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200 shadow-sm">
           <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Weekly Active Users</h3>
           <div className="flex items-baseline gap-3">
-            <p className="text-5xl font-extrabold text-slate-900">842</p>
+            <p className="text-4xl md:text-5xl font-extrabold text-slate-900">842</p>
             <span className="text-emerald-500 font-bold text-sm bg-emerald-50 px-2 py-1 rounded-full">68% retention</span>
           </div>
           <p className="text-slate-400 text-sm mt-4">Farmers who called or messaged the AI at least once in the last 7 days.</p>
@@ -108,7 +108,7 @@ export default function PartnerDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         
         {/* Insights: Top Crops */}
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 md:p-8">
           <h2 className="text-xl font-bold text-slate-800 mb-6">Regional Insights: Top Crops Queried</h2>
           <div className="space-y-6">
             {topCrops.map((crop) => (
@@ -132,7 +132,7 @@ export default function PartnerDashboard() {
 
         {/* Recent Value Delivered Feed */}
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-0 overflow-hidden flex flex-col h-[400px]">
-          <div className="px-8 py-6 border-b border-slate-100">
+          <div className="px-4 md:px-8 py-4 md:py-6 border-b border-slate-100">
             <h2 className="text-xl font-bold text-slate-800">Recent Value Delivered</h2>
             <p className="text-sm text-slate-500 mt-1">Live feed of execution actions saving time and money for farmers.</p>
           </div>

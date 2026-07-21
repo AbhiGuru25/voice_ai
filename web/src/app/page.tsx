@@ -212,7 +212,7 @@ export default function Home() {
       {/* Header / Hero Section */}
       <header className="relative z-10 bg-white/70 backdrop-blur-md border-b border-white/50 shadow-[0_4px_30px_rgba(0,0,0,0.03)] shrink-0">
         <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-orange-400 via-green-500 to-orange-400"></div>
-        <div className="max-w-6xl mx-auto px-6 py-10 text-center">
+        <div className="max-w-6xl mx-auto px-4 py-8 md:px-6 md:py-10 text-center">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white text-green-700 text-sm font-semibold mb-5 border border-green-100 shadow-sm transition-transform hover:scale-105 cursor-default">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -220,7 +220,7 @@ export default function Home() {
             </span>
             Agentic AI for Bharat (v1.1)
           </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-800 mb-4">
+          <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-slate-800 mb-4">
             Voice-First Intelligence for <span className="text-green-600">Agriculture</span>
           </h1>
           <p className="text-lg text-slate-500 max-w-2xl mx-auto font-medium">
@@ -230,13 +230,13 @@ export default function Home() {
       </header>
 
       {/* Main Content Area */}
-      <div className="relative z-10 flex-1 max-w-7xl mx-auto w-full px-6 py-8 flex flex-col lg:flex-row gap-8">
+      <div className="relative z-10 flex-1 max-w-7xl mx-auto w-full px-4 md:px-6 py-6 md:py-8 flex flex-col lg:flex-row gap-6 md:gap-8">
         
         {/* Left Column: Input & Output */}
         <div className="flex-1 flex flex-col">
           
           {/* Main Interaction Card (Glassmorphism) */}
-          <div className="bg-white/80 backdrop-blur-xl border border-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-3xl p-8 mb-8 relative group transition-all duration-500 hover:shadow-[0_8px_40px_rgb(0,0,0,0.08)]">
+          <div className="bg-white/80 backdrop-blur-xl border border-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-3xl p-6 md:p-8 mb-6 md:mb-8 relative group transition-all duration-500 hover:shadow-[0_8px_40px_rgb(0,0,0,0.08)]">
             
             <div className="flex flex-col items-center justify-center mb-8">
               <p className="text-slate-400 text-sm font-bold mb-5 uppercase tracking-widest">
@@ -298,7 +298,7 @@ export default function Home() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Type your query manually..."
-                  className="w-full bg-white border-2 border-slate-100 rounded-2xl px-6 py-4 pr-32 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-green-400 focus:ring-4 focus:ring-green-500/10 transition-all text-lg shadow-inner"
+                  className="w-full bg-white border-2 border-slate-100 rounded-2xl px-4 md:px-6 py-3 md:py-4 pr-24 md:pr-32 text-base md:text-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:border-green-400 focus:ring-4 focus:ring-green-500/10 transition-all shadow-inner"
                   autoComplete="off"
                 />
                 <button
@@ -334,7 +334,7 @@ export default function Home() {
               )}
             </div>
             
-            <div className="p-8 flex-1 overflow-auto">
+            <div className="p-4 md:p-8 flex-1 overflow-auto">
               {!result && !loading && (
                 <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4">
                   <svg className="w-12 h-12 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
