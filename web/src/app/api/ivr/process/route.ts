@@ -13,31 +13,37 @@ const groq = new Groq({
 export async function POST(req: NextRequest) {
   try {
     const data = await req.formData();
-    const mediaUrl = data.get('MediaUrl0') as string;
-    const bodyText = data.get('Body') as string;
+    const recordingUrl = data.get('RecordingUrl') as string;
     const sender = data.get('From') as string;
 
-    const twiml = new twilio.twiml.MessagingResponse();
-    let queryText = bodyText;
+    const twiml = new twilio.twiml.VoiceResponse();
 
-    if (mediaUrl) {
-      console.log('Downloading WhatsApp Voice Note from:', mediaUrl);
-      const audioRes = await fetch(mediaUrl);
-      const arrayBuffer = await audioRes.arrayBuffer();
-      const audioFile = new File([arrayBuffer], 'whatsapp-audio.ogg', { type: 'audio/ogg' });
-
-      const transcription = await groq.audio.transcriptions.create({
-        file: audioFile,
-        model: "whisper-large-v3",
-        response_format: "json",
-      });
-
-      queryText = transcription.text;
-      console.log('Transcribed WhatsApp audio:', queryText);
+    if (!recordingUrl) {
+      twiml.say({ voice: 'Polly.Aditi' }, "I didn't hear anything. Please try again.");
+      twiml.record({ action: '/api/ivr/process', method: 'POST', maxLength: 10, playBeep: true, transcribe: false });
+      return new NextResponse(twiml.toString(), { headers: { 'Content-Type': 'text/xml' } });
     }
 
-    if (!queryText) {
-      twiml.message("Please send a text message or a voice note.");
+    console.log('Downloading IVR Audio from:', recordingUrl);
+    
+    // Fetch the audio file from Twilio
+    const audioRes = await fetch(recordingUrl);
+    const arrayBuffer = await audioRes.arrayBuffer();
+    const audioFile = new File([arrayBuffer], 'ivr-audio.wav', { type: 'audio/wav' });
+
+    // Transcribe with Whisper
+    const transcription = await groq.audio.transcriptions.create({
+      file: audioFile,
+      model: "whisper-large-v3",
+      response_format: "json",
+    });
+
+    const queryText = transcription.text;
+    console.log('Transcribed IVR audio:', queryText);
+
+    if (!queryText || queryText.trim().toLowerCase() === 'you' || queryText.trim() === '') {
+      twiml.say({ voice: 'Polly.Aditi' }, "I could not hear you clearly. Please speak after the beep.");
+      twiml.record({ action: '/api/ivr/process', method: 'POST', maxLength: 10, playBeep: true, transcribe: false });
       return new NextResponse(twiml.toString(), { headers: { 'Content-Type': 'text/xml' } });
     }
 
@@ -51,6 +57,7 @@ export async function POST(req: NextRequest) {
 
     if (profiles && profiles.length > 0) {
       userProfile = profiles[0];
+      console.log('Found user profile:', userProfile.name);
     }
 
     // Parse Intent with Profile Context injected
@@ -60,14 +67,20 @@ export async function POST(req: NextRequest) {
     // --- NEW: EXECUTION INTENTS ---
     switch (parsedIntent.category) {
       case 'buyer_connect': {
+        // AI uses Profile Context if crop/location wasn't spoken
         const crop = parsedIntent.parameters.crop || userProfile?.primary_crop || 'your crop';
         const location = userProfile?.location || 'your area';
         
         await supabase.from('alert_subscriptions').insert([{
-          crop: crop, location: location, condition: 'buyer_connect', target_price: 0, status: 'pending', phone_number: sender
+          crop: crop,
+          location: location,
+          condition: 'buyer_connect',
+          target_price: 0,
+          status: 'pending',
+          phone_number: sender
         }]);
 
-        finalResponse = `I found 3 verified buyers for ${crop} in ${location} currently offering above market rates. Should I send them your contact number via SMS? Please reply 'Yes' to confirm.`;
+        finalResponse = `I found 3 verified buyers for ${crop} in ${location} currently offering above market rates. Should I send them your contact number via SMS? Please say Yes to confirm.`;
         break;
       }
 
@@ -76,10 +89,15 @@ export async function POST(req: NextRequest) {
         const newDay = parsedIntent.parameters.new_day || 'Thursday';
         
         await supabase.from('alert_subscriptions').insert([{
-          crop: task, location: newDay, condition: 'reschedule', target_price: 0, status: 'pending', phone_number: sender
+          crop: task,
+          location: newDay,
+          condition: 'reschedule',
+          target_price: 0,
+          status: 'pending',
+          phone_number: sender
         }]);
 
-        finalResponse = `I see heavy rain is expected. I can pause your scheduled ${task} and move it to ${newDay}. Please reply 'Yes' to confirm the schedule change.`;
+        finalResponse = `I see heavy rain is expected. I can pause your scheduled ${task} and move it to ${newDay} so it does not wash away. Please say Yes to confirm the schedule change.`;
         break;
       }
 
@@ -87,10 +105,15 @@ export async function POST(req: NextRequest) {
         const topic = parsedIntent.parameters.topic || 'PM-Kisan';
         
         await supabase.from('alert_subscriptions').insert([{
-          crop: topic, location: 'govt_scheme', condition: 'apply', target_price: 0, status: 'pending', phone_number: sender
+          crop: topic,
+          location: 'govt_scheme',
+          condition: 'apply',
+          target_price: 0,
+          status: 'pending',
+          phone_number: sender
         }]);
 
-        finalResponse = `You are eligible for the ${topic} scheme. I have your Aadhaar details on file. Should I submit the application for you right now? Reply 'Yes' to submit.`;
+        finalResponse = `You are eligible for the ${topic} scheme. I have your Aadhaar details on file. Should I submit the application for you right now? Say Yes to submit.`;
         break;
       }
 
@@ -100,7 +123,7 @@ export async function POST(req: NextRequest) {
         const { condition, target_price } = parsedIntent.parameters;
         
         if (!crop || !location || !target_price) {
-          finalResponse = "I understood you want to set an alert, but I missed some details like the crop, location, or target price. Could you please repeat?";
+          finalResponse = "I understood you want to set an alert, but I missed some details. Could you repeat?";
           break;
         }
         
@@ -108,7 +131,7 @@ export async function POST(req: NextRequest) {
           crop, location, condition: condition || 'above', target_price, status: 'pending', phone_number: sender
         }]);
 
-        finalResponse = `I am ready to set an alert. I will notify you when the price of ${crop} in ${location} goes ${condition || 'above'} ₹${target_price}. Please reply 'Yes' to confirm.`;
+        finalResponse = `I will alert you when the price of ${crop} in ${location} goes ${condition || 'above'} ${target_price} rupees. Please say 'Yes' to confirm.`;
         break;
       }
 
@@ -125,15 +148,17 @@ export async function POST(req: NextRequest) {
           const pendingAction = data[0];
           await supabase.from('alert_subscriptions').update({ status: 'active' }).eq('id', pendingAction.id);
           
+          // Custom confirmation messages based on Execution type
           if (pendingAction.condition === 'buyer_connect') {
             finalResponse = `Confirmed! I have sent an SMS with your phone number to 3 local buyers. They will call you shortly.`;
           } else if (pendingAction.condition === 'reschedule') {
             finalResponse = `Confirmed! Your farm schedule has been updated. I will remind you on ${pendingAction.location}.`;
           } else if (pendingAction.condition === 'apply') {
-            finalResponse = `Application submitted successfully! I will text you the official tracking number shortly.`;
+            finalResponse = `Application submitted successfully! I will text you the official tracking number.`;
           } else {
             finalResponse = `Confirmed! Your alert for ${pendingAction.crop} is now active.`;
           }
+          finalResponse += " You can hang up now, or ask me another question.";
         } else {
           finalResponse = "I'm sorry, I don't see any pending actions to confirm.";
         }
@@ -151,7 +176,7 @@ export async function POST(req: NextRequest) {
 
         if (data && data.length > 0) {
           await supabase.from('alert_subscriptions').update({ status: 'cancelled' }).eq('id', data[0].id);
-          finalResponse = `No problem. I have cancelled the action.`;
+          finalResponse = `No problem. I have cancelled the action. How else can I help?`;
         } else {
           finalResponse = "I'm sorry, I don't see any pending actions to cancel.";
         }
@@ -167,9 +192,9 @@ export async function POST(req: NextRequest) {
         }
         const fetchedData = await getMockMandiPrice(crop, location);
         if (fetchedData) {
-          finalResponse = `The price of ${fetchedData.crop} in ${fetchedData.location} today is ₹${fetchedData.price} per ${fetchedData.unit}.`;
+          finalResponse = `The price of ${fetchedData.crop} in ${fetchedData.location} today is ${fetchedData.price} rupees per ${fetchedData.unit}. What else can I help you with?`;
         } else {
-          finalResponse = `I couldn't find the price for ${crop} in ${location} today.`;
+          finalResponse = `I couldn't find the price for ${crop} in ${location} today. What else can I help you with?`;
         }
         break;
       }
@@ -182,7 +207,7 @@ export async function POST(req: NextRequest) {
         }
         const fetchedData = await getMockWeather(location);
         if (fetchedData) {
-          finalResponse = `The weather in ${fetchedData.location} today is ${fetchedData.condition}, ${fetchedData.temperature}°C with ${fetchedData.precipitation_chance}% chance of rain.`;
+          finalResponse = `The weather in ${fetchedData.location} today is ${fetchedData.condition}, ${fetchedData.temperature} degrees. What else can I help you with?`;
         } else {
           finalResponse = `I couldn't find the weather for ${location}.`;
         }
@@ -190,7 +215,7 @@ export async function POST(req: NextRequest) {
       }
 
       default: {
-        finalResponse = `Namaste${userProfile ? ' ' + userProfile.name : ''}. You can ask me about crop prices, weather, or say 'Connect me to a buyer'.`;
+        finalResponse = `Namaste${userProfile ? ' ' + userProfile.name : ''}. You can ask me about crop prices, or say 'Connect me to a buyer'.`;
         break;
       }
     }
@@ -204,13 +229,16 @@ export async function POST(req: NextRequest) {
       phone_number: sender
     }]);
 
-    twiml.message(finalResponse);
+    // Return TwiML
+    twiml.say({ voice: 'Polly.Aditi' }, finalResponse);
+    twiml.record({ action: '/api/ivr/process', method: 'POST', maxLength: 10, playBeep: true, transcribe: false });
+
     return new NextResponse(twiml.toString(), { headers: { 'Content-Type': 'text/xml' } });
 
   } catch (error) {
-    console.error('Error in WhatsApp webhook:', error);
-    const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message("Sorry, I encountered an internal error processing your request.");
+    console.error('Error in IVR process:', error);
+    const twiml = new twilio.twiml.VoiceResponse();
+    twiml.say({ voice: 'Polly.Aditi' }, "Sorry, I encountered an internal error. Please try again later.");
     return new NextResponse(twiml.toString(), { headers: { 'Content-Type': 'text/xml' } });
   }
 }

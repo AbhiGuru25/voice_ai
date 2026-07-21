@@ -5,7 +5,7 @@ const groq = new Groq({
 });
 
 export interface ParsedIntent {
-  category: 'mandi_price' | 'weather' | 'govt_scheme' | 'general_agri' | 'set_alert' | 'confirm_action' | 'cancel_action' | 'unknown';
+  category: 'mandi_price' | 'weather' | 'govt_scheme' | 'general_agri' | 'set_alert' | 'confirm_action' | 'cancel_action' | 'buyer_connect' | 'task_reschedule' | 'scheme_apply' | 'unknown';
   parameters: {
     crop?: string;
     location?: string;
@@ -13,26 +13,46 @@ export interface ParsedIntent {
     question?: string;
     condition?: 'above' | 'below';
     target_price?: number;
+    task?: string;
+    new_day?: string;
   };
 }
 
-export async function parseIntentWithGemini(query: string): Promise<ParsedIntent> {
+export async function parseIntentWithGemini(query: string, userProfile?: any): Promise<ParsedIntent> {
   if (!process.env.GROQ_API_KEY) {
     console.warn("No GROQ_API_KEY found, returning mock intent");
     return { category: 'mandi_price', parameters: { crop: 'wheat', location: 'ahmedabad' } };
   }
 
   try {
+    let contextString = "";
+    if (userProfile) {
+      contextString = `
+      Caller Context:
+      - Name: ${userProfile.name}
+      - Primary Crop: ${userProfile.primary_crop}
+      - Location: ${userProfile.location}
+      - Land Size: ${userProfile.land_size_acres} acres
+      
+      Use this context to understand their requests if they do not explicitly mention their crop or location.
+      `;
+    }
+
     const prompt = `
       You are an intent router for an agricultural voice assistant in India.
-      Analyze the user's query and categorize it into ONE of the following categories:
-      - "mandi_price": asking for the current price of a crop in a specific market. (Extract "crop" and "location").
-      - "set_alert": asking to be notified or alerted when a crop price crosses a certain threshold. (Extract "crop", "location", "condition" (either 'above' or 'below'), and "target_price" as a number).
-      - "weather": asking for the weather forecast in a location. (Extract "location").
-      - "govt_scheme": asking about a government subsidy, scheme, or program. (Extract "topic").
-      - "general_agri": asking for general farming advice, pest control, or fertilizers. (Extract "question").
-      - "confirm_action": user says yes, haan, correct, confirm, sure, okay, or do it. (Used to confirm a pending action).
-      - "cancel_action": user says no, nahi, cancel, na, wait, or stop. (Used to cancel a pending action).
+      ${contextString}
+      
+      Analyze the user's query and categorize it into ONE of the following execution categories:
+      - "mandi_price": asking for the current price of a crop. (Extract "crop" and "location").
+      - "set_alert": asking to be notified when a crop price crosses a threshold. (Extract "crop", "location", "condition", "target_price").
+      - "weather": asking for the weather forecast. (Extract "location").
+      - "buyer_connect": asking to connect with a buyer, sell their crop, or find a merchant. (Extract "crop").
+      - "task_reschedule": asking to delay, pause, or move a farming task (like fertilizer, irrigation) due to rain/weather. (Extract "task" and "new_day").
+      - "scheme_apply": asking to apply for, enroll in, or submit a form for a government scheme like PM-Kisan. (Extract "topic").
+      - "govt_scheme": asking ONLY for information about a scheme, not to apply. (Extract "topic").
+      - "general_agri": asking for general farming advice.
+      - "confirm_action": user says yes, haan, correct, confirm, sure, okay, or do it. (Used to confirm an execution action).
+      - "cancel_action": user says no, nahi, cancel, na, wait, or stop.
       - "unknown": if the query does not fit any of the above.
       
       Return the output as a strict JSON object with NO markdown formatting.
