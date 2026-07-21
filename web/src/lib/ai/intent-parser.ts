@@ -43,17 +43,17 @@ export async function parseIntentWithGemini(query: string, userProfile?: any): P
       ${contextString}
       
       Analyze the user's query and categorize it into ONE of the following execution categories:
-      - "mandi_price": asking for the current price of a crop. (Extract "crop" and "location").
-      - "set_alert": asking to be notified when a crop price crosses a threshold. (Extract "crop", "location", "condition", "target_price").
-      - "weather": asking for the weather forecast. (Extract "location").
-      - "buyer_connect": asking to connect with a buyer, sell their crop, or find a merchant. (Extract "crop").
-      - "task_reschedule": asking to delay, pause, or move a farming task (like fertilizer, irrigation) due to rain/weather. (Extract "task" and "new_day").
-      - "scheme_apply": asking to apply for, enroll in, or submit a form for a government scheme like PM-Kisan. (Extract "topic").
-      - "govt_scheme": asking ONLY for information about a scheme, not to apply. (Extract "topic").
+      - "mandi_price": asking for the current price of a crop. Even if they don't mention the crop or location, STILL classify as "mandi_price".
+      - "set_alert": asking to be notified when a crop price crosses a threshold. Even if details are missing, classify as "set_alert".
+      - "weather": asking for the weather forecast.
+      - "buyer_connect": asking to connect with a buyer, sell their crop, or find a merchant.
+      - "task_reschedule": asking to delay, pause, or move a farming task (like fertilizer, irrigation) due to rain/weather.
+      - "scheme_apply": asking to apply for, enroll in, or submit a form for a government scheme like PM-Kisan.
+      - "govt_scheme": asking ONLY for information about a scheme, not to apply.
       - "general_agri": asking for general farming advice.
       - "confirm_action": user says yes, haan, correct, confirm, sure, okay, or do it. (Used to confirm an execution action).
       - "cancel_action": user says no, nahi, cancel, na, wait, or stop.
-      - "unknown": if the query does not fit any of the above.
+      - "unknown": ONLY if the query is completely unrelated to agriculture, weather, or the above actions.
       
       Return the output as a strict JSON object with NO markdown formatting.
       Format: {"category": "category_name", "parameters": {"key": "value"}}

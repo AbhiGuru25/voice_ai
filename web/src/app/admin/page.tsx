@@ -159,10 +159,16 @@ export default function AdminDashboard() {
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono">{alert.phone_number}</span>
                 </div>
-                <h4 className="font-bold text-slate-800 capitalize mb-1">{alert.condition}</h4>
+                <h4 className="font-bold text-slate-800 capitalize mb-1">
+                  {alert.condition === 'above' || alert.condition === 'below' ? 'Price Alert' 
+                   : alert.condition === 'buyer_connect' ? 'Buyer Connection' 
+                   : alert.condition === 'reschedule' ? 'Task Reschedule'
+                   : alert.condition === 'apply' ? 'Scheme Application'
+                   : alert.condition}
+                </h4>
                 <p className="text-xs text-slate-600">
                   <span className="font-semibold text-slate-700">{alert.crop}</span> in {alert.location}
-                  {alert.target_price > 0 && ` @ ₹${alert.target_price}`}
+                  {(alert.condition === 'above' || alert.condition === 'below') && ` ${alert.condition} ₹${alert.target_price}`}
                 </p>
               </div>
             ))}
