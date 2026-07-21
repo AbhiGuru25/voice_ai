@@ -248,7 +248,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Return TwiML
-    twiml.say({ voice: voice as any, language: languageCode }, translatedResponse);
+    twiml.say({ voice: voice as any, language: languageCode as any }, translatedResponse);
     twiml.record({ action: '/api/ivr/process', method: 'POST', maxLength: 10, playBeep: true, transcribe: false });
 
     return new NextResponse(twiml.toString(), { headers: { 'Content-Type': 'text/xml' } });
