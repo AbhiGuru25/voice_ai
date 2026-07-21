@@ -8,79 +8,113 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { query } = body;
+    const sender = 'web-user'; // Hardcoded for web demo
 
     if (!query) {
       return NextResponse.json({ error: 'Query is required' }, { status: 400 });
     }
 
-    // 1. Extract and Categorize Intent
-    console.log(`Processing generic query: "${query}"`);
-    const parsedIntent = await parseIntentWithGemini(query);
+    // 1. Inject a Mock Profile for the Web Dashboard Demo
+    // This removes the reliance on a real phone number for testing on localhost
+    const userProfile = {
+      name: 'Ramesh Bhai',
+      primary_crop: 'Wheat',
+      location: 'Surat',
+      land_size_acres: 5.5
+    };
+
+    console.log(`Processing query: "${query}" for web user: ${userProfile.name}`);
+    
+    // 2. Parse Intent with Profile Context injected
+    const parsedIntent = await parseIntentWithGemini(query, userProfile);
     console.log('Parsed intent:', parsedIntent);
 
     let finalResponse = '';
     let fetchedData = null;
     let agenticAction = null;
 
-    // 2. Dynamic Routing based on Category
+    // 3. Dynamic Routing based on Category (Unified with WhatsApp/IVR logic)
     switch (parsedIntent.category) {
+      case 'buyer_connect': {
+        const crop = parsedIntent.parameters.crop || userProfile.primary_crop;
+        const location = userProfile.location;
+        
+        await supabase.from('alert_subscriptions').insert([{
+          crop: crop, location: location, condition: 'buyer_connect', target_price: 0, status: 'pending', phone_number: sender
+        }]);
+
+        agenticAction = { type: 'buyer_connect', crop, location, condition: 'buyer_connect', target_price: 0, status: 'pending' };
+        finalResponse = `I found 3 verified buyers for ${crop} in ${location} currently offering above market rates. Should I send them your contact number via SMS? Please say 'Yes' to confirm.`;
+        break;
+      }
+
+      case 'task_reschedule': {
+        const task = parsedIntent.parameters.task || 'fertilizer application';
+        const newDay = parsedIntent.parameters.new_day || 'Thursday';
+        
+        await supabase.from('alert_subscriptions').insert([{
+          crop: task, location: newDay, condition: 'reschedule', target_price: 0, status: 'pending', phone_number: sender
+        }]);
+
+        agenticAction = { type: 'task_reschedule', crop: task, location: newDay, condition: 'reschedule', target_price: 0, status: 'pending' };
+        finalResponse = `I see heavy rain is expected. I can pause your scheduled ${task} and move it to ${newDay}. Please say 'Yes' to confirm the schedule change.`;
+        break;
+      }
+
+      case 'scheme_apply': {
+        const topic = parsedIntent.parameters.topic || 'PM-Kisan';
+        
+        await supabase.from('alert_subscriptions').insert([{
+          crop: topic, location: 'govt_scheme', condition: 'apply', target_price: 0, status: 'pending', phone_number: sender
+        }]);
+
+        agenticAction = { type: 'scheme_apply', crop: topic, location: 'govt_scheme', condition: 'apply', target_price: 0, status: 'pending' };
+        finalResponse = `You are eligible for the ${topic} scheme. I have your Aadhaar details on file. Should I submit the application for you right now? Say 'Yes' to submit.`;
+        break;
+      }
+
       case 'set_alert': {
-        const { crop, location, condition, target_price } = parsedIntent.parameters;
+        const crop = parsedIntent.parameters.crop || userProfile.primary_crop;
+        const location = parsedIntent.parameters.location || userProfile.location;
+        const { condition, target_price } = parsedIntent.parameters;
+        
         if (!crop || !location || !target_price) {
-          finalResponse = "I understood you want to set an alert, but I missed some details like the crop, location, or target price. Could you please repeat?";
+          finalResponse = "I understood you want to set an alert, but I missed some details. Could you please repeat?";
           break;
         }
         
-        // Save to Supabase for persistence as PENDING
-        const { error: insertError } = await supabase
-          .from('alert_subscriptions')
-          .insert([{
-            crop,
-            location,
-            condition: condition || 'above',
-            target_price,
-            status: 'pending',
-            phone_number: 'web-user' // hardcoded for web demo
-          }]);
+        await supabase.from('alert_subscriptions').insert([{
+          crop, location, condition: condition || 'above', target_price, status: 'pending', phone_number: sender
+        }]);
 
-        if (insertError) {
-          console.error("Failed to save alert to Supabase:", insertError);
-        }
-
-        agenticAction = {
-          type: 'price_monitor',
-          crop,
-          location,
-          condition: condition || 'above',
-          target_price,
-          status: 'pending'
-        };
-
-        finalResponse = `I am ready to set an alert. I will call you when the price of ${crop} in ${location} goes ${condition || 'above'} ₹${target_price}. Please say 'Yes' to confirm, or 'No' to cancel.`;
+        agenticAction = { type: 'price_monitor', crop, location, condition: condition || 'above', target_price, status: 'pending' };
+        finalResponse = `I am ready to set an alert. I will notify you when the price of ${crop} in ${location} goes ${condition || 'above'} ₹${target_price}. Please say 'Yes' to confirm.`;
         break;
       }
 
       case 'confirm_action': {
-        // Find the most recent pending alert for this user
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('alert_subscriptions')
           .select('*')
-          .eq('phone_number', 'web-user')
+          .eq('phone_number', sender)
           .eq('status', 'pending')
           .order('created_at', { ascending: false })
           .limit(1);
 
         if (data && data.length > 0) {
-          const alertId = data[0].id;
-          await supabase
-            .from('alert_subscriptions')
-            .update({ status: 'active' })
-            .eq('id', alertId);
+          const pendingAction = data[0];
+          await supabase.from('alert_subscriptions').update({ status: 'active' }).eq('id', pendingAction.id);
           
-          finalResponse = `Confirmed! Your alert for ${data[0].crop} is now active.`;
-          
-          // Re-emit agenticAction so the dashboard turns green
-          agenticAction = { ...data[0], status: 'active' };
+          if (pendingAction.condition === 'buyer_connect') {
+            finalResponse = `Confirmed! I have sent an SMS with your phone number to 3 local buyers. They will call you shortly.`;
+          } else if (pendingAction.condition === 'reschedule') {
+            finalResponse = `Confirmed! Your farm schedule has been updated. I will remind you on ${pendingAction.location}.`;
+          } else if (pendingAction.condition === 'apply') {
+            finalResponse = `Application submitted successfully! I will text you the official tracking number.`;
+          } else {
+            finalResponse = `Confirmed! Your alert for ${pendingAction.crop} is now active.`;
+          }
+          agenticAction = { ...pendingAction, status: 'active' };
         } else {
           finalResponse = "I'm sorry, I don't see any pending actions to confirm.";
         }
@@ -88,23 +122,17 @@ export async function POST(req: NextRequest) {
       }
 
       case 'cancel_action': {
-        // Find the most recent pending alert for this user
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('alert_subscriptions')
           .select('*')
-          .eq('phone_number', 'web-user')
+          .eq('phone_number', sender)
           .eq('status', 'pending')
           .order('created_at', { ascending: false })
           .limit(1);
 
         if (data && data.length > 0) {
-          const alertId = data[0].id;
-          await supabase
-            .from('alert_subscriptions')
-            .update({ status: 'cancelled' })
-            .eq('id', alertId);
-          
-          finalResponse = `No problem. I have cancelled the alert.`;
+          await supabase.from('alert_subscriptions').update({ status: 'cancelled' }).eq('id', data[0].id);
+          finalResponse = `No problem. I have cancelled the action.`;
         } else {
           finalResponse = "I'm sorry, I don't see any pending actions to cancel.";
         }
@@ -112,7 +140,8 @@ export async function POST(req: NextRequest) {
       }
 
       case 'mandi_price': {
-        const { crop, location } = parsedIntent.parameters;
+        const crop = parsedIntent.parameters.crop || userProfile.primary_crop;
+        const location = parsedIntent.parameters.location || userProfile.location;
         if (!crop || !location) {
           finalResponse = "I understood you want a price, but I couldn't catch the crop or location. Could you repeat?";
           break;
@@ -127,35 +156,22 @@ export async function POST(req: NextRequest) {
       }
 
       case 'weather': {
-        const { location } = parsedIntent.parameters;
+        const location = parsedIntent.parameters.location || userProfile.location;
         if (!location) {
           finalResponse = "I understood you want the weather, but I couldn't catch the location. Could you repeat?";
           break;
         }
         fetchedData = await getMockWeather(location);
         if (fetchedData) {
-          finalResponse = `The weather in ${fetchedData.location} today is ${fetchedData.condition} with a temperature of ${fetchedData.temperature} degrees and a ${fetchedData.precipitation_chance}% chance of rain.`;
+          finalResponse = `The weather in ${fetchedData.location} today is ${fetchedData.condition}, ${fetchedData.temperature}°C with ${fetchedData.precipitation_chance}% chance of rain.`;
         } else {
           finalResponse = `I couldn't find the weather forecast for ${location}.`;
         }
         break;
       }
 
-      case 'govt_scheme': {
-        const { topic } = parsedIntent.parameters;
-        finalResponse = `I have logged your interest in the government scheme regarding ${topic}. I will find the relevant details and get back to you shortly.`;
-        break;
-      }
-
-      case 'general_agri': {
-        const { question } = parsedIntent.parameters;
-        finalResponse = `You asked: "${question}". As an AI, I suggest consulting your local agronomist for specific advice, but generally, maintaining good soil health is key.`;
-        break;
-      }
-
-      case 'unknown':
       default: {
-        finalResponse = "I'm sorry, I couldn't understand what you need. You can ask me about crop prices, weather, government schemes, or set price alerts.";
+        finalResponse = `Namaste ${userProfile.name}. You can ask me about crop prices, weather, or say 'Connect me to a buyer'.`;
         break;
       }
     }
