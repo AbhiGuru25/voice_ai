@@ -195,16 +195,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // --- NEW: TRANSLATE RESPONSE ---
+    let translatedResponse = finalResponse;
+    if (parsedIntent.language && parsedIntent.language !== 'en') {
+      const { translateResponse } = await import('@/lib/ai/translator');
+      translatedResponse = await translateResponse(finalResponse, parsedIntent.language);
+      console.log(`Translated response from English to ${parsedIntent.language}:`, translatedResponse);
+    }
+
     // Log the interaction
     await supabase.from('interaction_logs').insert([{
       query: queryText,
       intent_category: parsedIntent.category,
       intent_parameters: parsedIntent.parameters,
-      response: finalResponse,
+      response: translatedResponse,
       phone_number: sender
     }]);
 
-    twiml.message(finalResponse);
+    twiml.message(translatedResponse);
     return new NextResponse(twiml.toString(), { headers: { 'Content-Type': 'text/xml' } });
 
   } catch (error) {

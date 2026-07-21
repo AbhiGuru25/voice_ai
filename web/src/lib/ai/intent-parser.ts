@@ -6,6 +6,7 @@ const groq = new Groq({
 
 export interface ParsedIntent {
   category: 'mandi_price' | 'weather' | 'govt_scheme' | 'general_agri' | 'set_alert' | 'confirm_action' | 'cancel_action' | 'buyer_connect' | 'task_reschedule' | 'scheme_apply' | 'unknown';
+  language: 'en' | 'hi' | 'gu';
   parameters: {
     crop?: string;
     location?: string;
@@ -21,7 +22,7 @@ export interface ParsedIntent {
 export async function parseIntentWithGemini(query: string, userProfile?: any): Promise<ParsedIntent> {
   if (!process.env.GROQ_API_KEY) {
     console.warn("No GROQ_API_KEY found, returning mock intent");
-    return { category: 'mandi_price', parameters: { crop: 'wheat', location: 'ahmedabad' } };
+    return { category: 'mandi_price', language: 'en', parameters: { crop: 'wheat', location: 'ahmedabad' } };
   }
 
   try {
@@ -55,8 +56,13 @@ export async function parseIntentWithGemini(query: string, userProfile?: any): P
       - "cancel_action": user says no, nahi, cancel, na, wait, or stop.
       - "unknown": ONLY if the query is completely unrelated to agriculture, weather, or the above actions.
       
+      Additionally, detect the language of the User Query:
+      - "en" for English
+      - "hi" for Hindi (or Hinglish)
+      - "gu" for Gujarati
+      
       Return the output as a strict JSON object with NO markdown formatting.
-      Format: {"category": "category_name", "parameters": {"key": "value"}}
+      Format: {"category": "category_name", "language": "en_hi_or_gu", "parameters": {"key": "value"}}
       
       User Query: "${query}"
     `;

@@ -49,12 +49,12 @@ export default function Home() {
     };
   }, []);
 
-  const speakResponse = async (text: string) => {
+  const speakResponse = async (text: string, lang?: string) => {
     try {
       const res = await fetch('/api/engine/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, lang }),
       });
       const data = await res.json();
       
@@ -180,7 +180,7 @@ export default function Home() {
       }
       
       if (data.response) {
-        await speakResponse(data.response);
+        await speakResponse(data.response, data.intent?.language);
       }
     } catch (err) {
       setResult({ error: 'Failed to process request.' });

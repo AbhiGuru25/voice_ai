@@ -176,6 +176,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // --- NEW: TRANSLATE RESPONSE ---
+    let translatedResponse = finalResponse;
+    if (parsedIntent.language && parsedIntent.language !== 'en') {
+      const { translateResponse } = await import('@/lib/ai/translator');
+      translatedResponse = await translateResponse(finalResponse, parsedIntent.language);
+      console.log(`Translated response from English to ${parsedIntent.language}:`, translatedResponse);
+    }
+
     // Log the entire interaction to Supabase Analytics Table
     const { error: logError } = await supabase
       .from('interaction_logs')
@@ -183,7 +191,7 @@ export async function POST(req: NextRequest) {
         query,
         intent_category: parsedIntent.category,
         intent_parameters: parsedIntent.parameters,
-        response: finalResponse
+        response: translatedResponse
       }]);
 
     if (logError) {
@@ -194,7 +202,7 @@ export async function POST(req: NextRequest) {
       intent: parsedIntent,
       data: fetchedData,
       agenticAction,
-      response: finalResponse
+      response: translatedResponse
     });
 
   } catch (error) {

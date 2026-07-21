@@ -4,7 +4,7 @@ import * as googleTTS from 'google-tts-api';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { text } = body;
+    const { text, lang } = body;
 
     if (!text) {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 });
@@ -13,9 +13,12 @@ export async function POST(req: NextRequest) {
     // google-tts-api limits requests to 200 characters.
     // We truncate to 199 to ensure it always succeeds.
     const safeText = text.substring(0, 199);
+    
+    // Default to 'hi' if lang is missing or english (google TTS 'en' is fine but 'hi' handles indian english well)
+    const ttsLang = lang === 'gu' ? 'gu' : lang === 'hi' ? 'hi' : 'en-IN';
 
     const base64 = await googleTTS.getAudioBase64(safeText, {
-      lang: 'hi', // 'hi' works perfectly for Indian Female voice
+      lang: ttsLang,
       slow: false,
       host: 'https://translate.google.com',
       timeout: 10000,

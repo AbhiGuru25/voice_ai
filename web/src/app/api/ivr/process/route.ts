@@ -220,17 +220,35 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // --- NEW: TRANSLATE RESPONSE ---
+    let translatedResponse = finalResponse;
+    if (parsedIntent.language && parsedIntent.language !== 'en') {
+      const { translateResponse } = await import('@/lib/ai/translator');
+      translatedResponse = await translateResponse(finalResponse, parsedIntent.language);
+      console.log(`Translated response from English to ${parsedIntent.language}:`, translatedResponse);
+    }
+
     // Log the interaction
     await supabase.from('interaction_logs').insert([{
       query: queryText,
       intent_category: parsedIntent.category,
       intent_parameters: parsedIntent.parameters,
-      response: finalResponse,
+      response: translatedResponse,
       phone_number: sender
     }]);
 
+    // Select TTS Voice based on Language
+    let voice = 'Polly.Aditi'; // English/Hindi
+    let languageCode = 'hi-IN';
+    if (parsedIntent.language === 'gu') {
+      voice = 'Polly.Kajal';
+      languageCode = 'gu-IN';
+    } else if (parsedIntent.language === 'en') {
+      languageCode = 'en-IN';
+    }
+
     // Return TwiML
-    twiml.say({ voice: 'Polly.Aditi' }, finalResponse);
+    twiml.say({ voice: voice as any, language: languageCode }, translatedResponse);
     twiml.record({ action: '/api/ivr/process', method: 'POST', maxLength: 10, playBeep: true, transcribe: false });
 
     return new NextResponse(twiml.toString(), { headers: { 'Content-Type': 'text/xml' } });
