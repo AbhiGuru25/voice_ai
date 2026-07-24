@@ -25,7 +25,7 @@ export default function RealtimeAssistant() {
   const simulationIntervalRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const stopRecording = () => {
+  const stopSystem = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       mediaRecorderRef.current.stop();
     }
@@ -35,7 +35,11 @@ export default function RealtimeAssistant() {
     if (deepgramWsRef.current) {
       deepgramWsRef.current.finish();
     }
+    if (cartesiaWsRef.current) {
+      cartesiaWsRef.current.disconnect();
+    }
     setIsListening(false);
+    setIsSpeaking(false);
   };
 
   const startListening = async () => {
@@ -43,7 +47,9 @@ export default function RealtimeAssistant() {
     setTranscript('');
     setAiResponse('');
     
+    // Hard stop anything currently running before restarting the master loop
     if (isSpeaking && cartesiaWsRef.current) {
+      cartesiaWsRef.current.disconnect();
       setIsSpeaking(false);
       if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
     }
@@ -60,11 +66,13 @@ export default function RealtimeAssistant() {
       streamRef.current = stream;
 
       const deepgram = createClient(deepgramKey);
+      
+      // Continuous listen
       const connection = deepgram.listen.live({
         model: "nova-2",
         language: "en-US",
         smart_format: true,
-        endpointing: 500,
+        endpointing: 500, // 500ms of silence = end of utterance
       });
 
       deepgramWsRef.current = connection;
@@ -84,12 +92,25 @@ export default function RealtimeAssistant() {
 
       connection.on('Results', async (data: any) => {
         const transcriptSegment = data.channel.alternatives[0].transcript;
+        
+        // --- INTERRUPTION LOGIC ---
+        // If we hear the user speaking AND Cartesia is currently talking, kill Cartesia instantly.
+        if (transcriptSegment && isSpeaking && cartesiaWsRef.current) {
+            cartesiaWsRef.current.disconnect();
+            setIsSpeaking(false);
+            setAiResponse("Interrupted...");
+            if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
+        }
+        
         if (transcriptSegment && data.speech_final) {
-          setTranscript(prev => prev + " " + transcriptSegment);
-          stopRecording();
+          setTranscript(prev => prev ? prev + " " + transcriptSegment : transcriptSegment);
+          
+          // DO NOT stop recording. Keep the mic hot for the next interaction.
+          // Just fire off the query to the LLM.
           await processUserQuery(transcriptSegment);
+          
         } else if (transcriptSegment) {
-          setTranscript(prev => prev + " " + transcriptSegment);
+          setTranscript(prev => prev ? prev + " " + transcriptSegment : transcriptSegment);
         }
       });
 
@@ -101,27 +122,35 @@ export default function RealtimeAssistant() {
 
   const processUserQuery = async (text: string) => {
     try {
-      const newHistory = [...history, { role: "user", content: text }];
-      setAiResponse("Thinking...");
-      
-      const res = await fetch('/api/assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, history: history }),
+      // Create a fresh history copy specifically for this call
+      setHistory(prev => {
+        const newHistory = [...prev, { role: "user", content: text }];
+        
+        // Execute the fetch inside here to ensure we have the absolute latest state
+        fetch('/api/assistant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, history: newHistory }),
+        }).then(res => res.json()).then(async data => {
+          if (data.uiUpdate) setUiState(data.uiUpdate);
+          
+          if (data.response) {
+            setHistory(h => [...h, { role: "assistant", content: data.response }]);
+            setAiResponse(data.response);
+            await playCartesiaTTS(data.response);
+          }
+        }).catch(err => {
+            console.error("API Error:", err);
+            setAiResponse("Connection error.");
+        });
+
+        return newHistory;
       });
       
-      const data = await res.json();
+      setAiResponse("Thinking...");
       
-      if (data.uiUpdate) setUiState(data.uiUpdate);
-      
-      if (data.response) {
-        setHistory([...newHistory, { role: "assistant", content: data.response }]);
-        setAiResponse(data.response);
-        await playCartesiaTTS(data.response);
-      }
     } catch (err) {
       console.error("Error calling assistant API:", err);
-      setAiResponse("Connection error.");
     }
   };
 
@@ -248,7 +277,7 @@ export default function RealtimeAssistant() {
           </div>
 
           <div className="static md:absolute mt-12 md:bottom-12 md:mt-0 text-slate-500 text-[10px] md:text-sm tracking-widest uppercase font-mono z-10">
-            {isListening ? "Listening (Deepgram Active)..." : "System Idle"}
+            {isListening ? "Mic Hot. Say anything to interrupt..." : "System Idle"}
           </div>
         </div>
 
@@ -264,6 +293,7 @@ export default function RealtimeAssistant() {
         className="fixed inset-0 opacity-0 z-0 focus:outline-none" 
         onKeyDown={(e) => {
           if (e.code === 'Space' && !isListening && !isSpeaking) startListening();
+          else if (e.code === 'Escape') stopSystem();
         }}
         autoFocus
       />
