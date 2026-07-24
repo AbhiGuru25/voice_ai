@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { Inter } from 'next/font/google';
 import OrbVisualizer from '@/components/OrbVisualizer';
 import DynamicWidgets from '@/components/DynamicWidgets';
-import { DeepgramClient } from '@deepgram/sdk';
+import { createClient } from '@deepgram/sdk';
 import { Cartesia } from '@cartesia/cartesia-js';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -65,7 +65,7 @@ export default function RealtimeAssistant() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      const deepgram = new DeepgramClient(deepgramKey);
+      const deepgram = createClient(deepgramKey);
       
       // Continuous listen
       const connection = deepgram.listen.live({
