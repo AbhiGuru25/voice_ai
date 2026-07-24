@@ -1,8 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
+import { Inter } from 'next/font/google';
 import OrbVisualizer from '@/components/OrbVisualizer';
 import DynamicWidgets from '@/components/DynamicWidgets';
+
+const inter = Inter({ subsets: ['latin'] });
 
 export default function RealtimeAssistant() {
   const [isListening, setIsListening] = useState(false);
@@ -10,6 +14,7 @@ export default function RealtimeAssistant() {
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [uiState, setUiState] = useState<any>(null);
   const [transcript, setTranscript] = useState('');
+  const [aiResponse, setAiResponse] = useState('');
   const [history, setHistory] = useState<any[]>([]);
 
   const recognitionRef = useRef<any>(null);
@@ -17,7 +22,6 @@ export default function RealtimeAssistant() {
   const simulationIntervalRef = useRef<any>(null);
 
   useEffect(() => {
-    // Initialize Web Speech API for STT
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
@@ -31,21 +35,15 @@ export default function RealtimeAssistant() {
         await processUserQuery(text);
       };
 
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
+      recognition.onend = () => setIsListening(false);
       recognition.onerror = (e: any) => {
         console.error("Speech recognition error", e);
         setIsListening(false);
       };
 
       recognitionRef.current = recognition;
-    } else {
-      alert("SpeechRecognition is not supported in this browser. Please use Chrome.");
     }
 
-    // Initialize TTS
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       synthRef.current = window.speechSynthesis;
     }
@@ -54,17 +52,18 @@ export default function RealtimeAssistant() {
       if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
       if (synthRef.current) synthRef.current.cancel();
     };
-  }, [history]); // Depend on history so the closure has the latest history
+  }, [history]);
 
   const startListening = () => {
     if (isSpeaking && synthRef.current) {
-      synthRef.current.cancel(); // Interrupt the AI
+      synthRef.current.cancel();
       setIsSpeaking(false);
       if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
     }
     
-    setUiState(null); // Clear widgets on new query
+    setUiState(null);
     setTranscript('');
+    setAiResponse('');
     
     if (recognitionRef.current) {
       try {
@@ -79,6 +78,7 @@ export default function RealtimeAssistant() {
   const processUserQuery = async (text: string) => {
     try {
       const newHistory = [...history, { role: "user", content: text }];
+      setAiResponse("Thinking...");
       
       const res = await fetch('/api/assistant', {
         method: 'POST',
@@ -88,38 +88,33 @@ export default function RealtimeAssistant() {
       
       const data = await res.json();
       
-      if (data.uiUpdate) {
-        setUiState(data.uiUpdate);
-      }
+      if (data.uiUpdate) setUiState(data.uiUpdate);
       
       if (data.response) {
         setHistory([...newHistory, { role: "assistant", content: data.response }]);
+        setAiResponse(data.response);
         speakResponse(data.response);
       }
     } catch (err) {
       console.error("Error calling assistant API:", err);
+      setAiResponse("Connection error.");
     }
   };
 
   const speakResponse = (text: string) => {
     if (!synthRef.current) return;
-    
     synthRef.current.cancel();
     
     const utterance = new SpeechSynthesisUtterance(text);
-    
-    // Pick a good voice if available
     const voices = synthRef.current.getVoices();
-    const goodVoice = voices.find((v: any) => v.name.includes("Google") || v.name.includes("Premium"));
+    const goodVoice = voices.find((v: any) => v.name.includes("Google") || v.name.includes("Premium") || v.name.includes("Microsoft Zira"));
     if (goodVoice) utterance.voice = goodVoice;
-    
-    utterance.rate = 1.1; // Make it sound slightly faster/more conversational
+    utterance.rate = 1.1;
 
     utterance.onstart = () => {
       setIsSpeaking(true);
-      // Simulate audio frequency data for the orb
       simulationIntervalRef.current = setInterval(() => {
-        setVolumeLevel(Math.random() * 0.8 + 0.2); // Random level between 0.2 and 1.0
+        setVolumeLevel(Math.random() * 0.8 + 0.2);
       }, 100);
     };
 
@@ -133,51 +128,99 @@ export default function RealtimeAssistant() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center relative overflow-hidden font-sans">
+    <div className={`min-h-screen bg-slate-950 text-slate-100 flex relative overflow-hidden ${inter.className}`}>
       
-      {/* Background ambient gradient */}
-      <div className="absolute inset-0 z-0">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-900/20 rounded-full blur-[120px] mix-blend-screen" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-indigo-900/20 rounded-full blur-[120px] mix-blend-screen" />
+      {/* 1. Animated Topographical Background */}
+      <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
+        <motion.div 
+          animate={{ x: [0, -100, 0], y: [0, 50, 0] }}
+          transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
+          className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/black-scales.png')] mix-blend-overlay"
+        />
+        <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-blue-900/30 to-transparent blur-[150px]" />
+        <div className="absolute bottom-0 left-0 w-1/2 h-1/2 bg-gradient-to-t from-indigo-900/20 to-transparent blur-[150px]" />
       </div>
 
-      <header className="absolute top-8 left-0 right-0 text-center z-10">
-        <h1 className="text-2xl font-bold tracking-widest text-slate-300 uppercase">Executive Voice AI</h1>
-        <p className="text-slate-500 text-sm mt-2">Powered by Groq Llama 3</p>
-      </header>
-
-      <main className="relative z-10 flex flex-col items-center justify-center w-full max-w-4xl px-6 flex-1">
+      {/* Split Screen Layout */}
+      <div className="relative z-10 w-full flex">
         
-        {/* Dynamic Widget Area (Top) */}
-        <div className="h-48 w-full flex items-end justify-center mb-8">
+        {/* LEFT PANEL: The AI Persona */}
+        <div className="w-2/3 h-full flex flex-col items-center justify-center relative pt-12 border-r border-white/5 bg-black/20 backdrop-blur-sm">
+          
+          <header className="absolute top-12 left-12 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center border border-white/20">
+              <span className="text-white font-bold text-xl">V</span>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold tracking-wider text-white uppercase">Voice AI Platform</h1>
+              <p className="text-blue-400 text-xs font-mono uppercase tracking-widest mt-1">Real-time Node</p>
+            </div>
+          </header>
+
+          {/* The Animated Orb */}
+          <div className="mt-20 mb-16 cursor-pointer" onClick={startListening}>
+            <OrbVisualizer isSpeaking={isSpeaking} volumeLevel={volumeLevel} />
+          </div>
+
+          {/* Jarvis Chat Interface (Floating Glass Card) */}
+          <div className="w-full max-w-2xl px-8 flex flex-col gap-6">
+            
+            {/* User Transcript */}
+            <div className="flex justify-end w-full">
+              {transcript && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-white/10 backdrop-blur-md border border-white/10 px-6 py-4 rounded-3xl rounded-tr-sm max-w-lg"
+                >
+                  <p className="text-slate-200 text-lg">{transcript}</p>
+                </motion.div>
+              )}
+            </div>
+
+            {/* AI Chat Bubble */}
+            <div className="flex items-start gap-4 w-full">
+              <div className="w-12 h-12 rounded-full bg-blue-600/20 border border-blue-500/50 flex flex-shrink-0 items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.5)]">
+                <svg className="w-6 h-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+              </div>
+              <div className="flex-1">
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-blue-900/30 backdrop-blur-xl border border-blue-500/30 px-6 py-5 rounded-3xl rounded-tl-sm w-full shadow-2xl relative overflow-hidden"
+                >
+                  {/* Subtle sweep animation on the card */}
+                  <motion.div 
+                    animate={{ x: ['-100%', '200%'] }}
+                    transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                    className="absolute top-0 bottom-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-[-20deg]"
+                  />
+                  <p className="text-white text-xl leading-relaxed relative z-10">
+                    {aiResponse || "I am online. Tap the orb or press Spacebar to begin."}
+                  </p>
+                </motion.div>
+              </div>
+            </div>
+
+          </div>
+
+          <div className="absolute bottom-12 text-slate-500 text-sm tracking-widest uppercase font-mono">
+            {isListening ? "Listening..." : "System Idle"}
+          </div>
+        </div>
+
+        {/* RIGHT PANEL: Tool Dashboard */}
+        <div className="w-1/3 h-full relative z-20">
           <DynamicWidgets uiUpdate={uiState} />
         </div>
 
-        {/* The Animated Orb */}
-        <div className="mb-12 cursor-pointer" onClick={startListening}>
-          <OrbVisualizer isSpeaking={isSpeaking} volumeLevel={volumeLevel} />
-        </div>
+      </div>
 
-        {/* Status Text & Controls */}
-        <div className="text-center h-24">
-          <p className="text-slate-400 font-medium mb-4 h-6">
-            {isListening ? "Listening..." : isSpeaking ? "Speaking..." : "Tap the orb or press Spacebar to speak"}
-          </p>
-          
-          <p className="text-xl font-medium text-blue-100 max-w-2xl mx-auto italic opacity-80">
-            {transcript ? `"${transcript}"` : ""}
-          </p>
-        </div>
-        
-      </main>
-      
-      {/* Invisible global key listener for spacebar */}
+      {/* Global Spacebar Listener */}
       <button 
         className="fixed inset-0 opacity-0 z-0 focus:outline-none" 
         onKeyDown={(e) => {
-          if (e.code === 'Space' && !isListening && !isSpeaking) {
-            startListening();
-          }
+          if (e.code === 'Space' && !isListening && !isSpeaking) startListening();
         }}
         autoFocus
       />
