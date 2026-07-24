@@ -185,6 +185,12 @@ export default function RealtimeAssistant() {
           id: "a0e99841-438c-4a64-b679-ae501e7d6091",
         },
         transcript: text,
+        context_id: Math.random().toString(36).substring(7),
+        output_format: {
+          container: "raw",
+          encoding: "pcm_f32le",
+          sample_rate: 44100
+        }
       });
 
       websocket.on("done", () => {
