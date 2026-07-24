@@ -169,7 +169,7 @@ export default function RealtimeAssistant() {
         setVolumeLevel(Math.random() * 0.8 + 0.2);
       }, 100);
 
-      const websocket = cartesia.tts.websocket({
+      const websocket = await cartesia.tts.websocket({
         container: "raw",
         encoding: "pcm_f32le",
         sampleRate: 44100
