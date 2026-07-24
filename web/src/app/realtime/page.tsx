@@ -5,6 +5,8 @@ import { motion } from 'framer-motion';
 import { Inter } from 'next/font/google';
 import OrbVisualizer from '@/components/OrbVisualizer';
 import DynamicWidgets from '@/components/DynamicWidgets';
+import { createClient } from '@deepgram/sdk';
+import { Cartesia } from '@cartesia/cartesia-js';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -16,62 +18,93 @@ export default function RealtimeAssistant() {
   const [transcript, setTranscript] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [history, setHistory] = useState<any[]>([]);
-
-  const recognitionRef = useRef<any>(null);
-  const synthRef = useRef<any>(null);
+  
+  const deepgramWsRef = useRef<any>(null);
+  const cartesiaWsRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const simulationIntervalRef = useRef<any>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onresult = async (event: any) => {
-        const text = event.results[0][0].transcript;
-        setTranscript(text);
-        await processUserQuery(text);
-      };
-
-      recognition.onend = () => setIsListening(false);
-      recognition.onerror = (e: any) => {
-        console.error("Speech recognition error", e);
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
+  // Stop recording cleanly
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop();
     }
-
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      synthRef.current = window.speechSynthesis;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
     }
-    
-    return () => {
-      if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
-      if (synthRef.current) synthRef.current.cancel();
-    };
-  }, [history]);
-
-  const startListening = () => {
-    if (isSpeaking && synthRef.current) {
-      synthRef.current.cancel();
-      setIsSpeaking(false);
-      if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
+    if (deepgramWsRef.current) {
+      deepgramWsRef.current.finish();
     }
-    
+    setIsListening(false);
+  };
+
+  const startListening = async () => {
+    // Reset state
     setUiState(null);
     setTranscript('');
     setAiResponse('');
     
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.start();
-        setIsListening(true);
-      } catch (e) {
-        console.error("Already started");
-      }
+    // Stop any current Cartesia speech
+    if (isSpeaking && cartesiaWsRef.current) {
+      setIsSpeaking(false);
+      if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
+    }
+    
+    setIsListening(true);
+
+    try {
+      // 1. Fetch Deepgram Auth Token
+      const authRes = await fetch('/api/auth/deepgram');
+      const { key: deepgramKey } = await authRes.json();
+      
+      if (!deepgramKey) throw new Error("No Deepgram key");
+
+      // 2. Capture Mic Audio
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      // 3. Connect to Deepgram WebSocket
+      const deepgram = createClient(deepgramKey);
+      const connection = deepgram.listen.live({
+        model: "nova-2",
+        language: "en-US",
+        smart_format: true,
+        endpointing: 500, // wait 500ms of silence to trigger endpoint
+      });
+
+      deepgramWsRef.current = connection;
+
+      connection.on('open', () => {
+        // Use MediaRecorder to stream chunks to Deepgram
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+
+        mediaRecorder.addEventListener('dataavailable', event => {
+          if (event.data.size > 0 && connection.getReadyState() === 1) {
+            connection.send(event.data);
+          }
+        });
+
+        mediaRecorder.start(250); // Send chunks every 250ms
+      });
+
+      connection.on('Results', async (data: any) => {
+        const transcriptSegment = data.channel.alternatives[0].transcript;
+        if (transcriptSegment && data.speech_final) {
+          setTranscript(prev => prev + " " + transcriptSegment);
+          
+          // Endpoint reached (user finished speaking sentence)
+          stopRecording();
+          await processUserQuery(transcriptSegment);
+        } else if (transcriptSegment) {
+          setTranscript(prev => prev + " " + transcriptSegment);
+        }
+      });
+
+    } catch (err) {
+      console.error("Microphone or Deepgram Error:", err);
+      setIsListening(false);
     }
   };
 
@@ -80,6 +113,7 @@ export default function RealtimeAssistant() {
       const newHistory = [...history, { role: "user", content: text }];
       setAiResponse("Thinking...");
       
+      // Fire to Groq LLM (via Next.js API to hide Groq key)
       const res = await fetch('/api/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -93,7 +127,7 @@ export default function RealtimeAssistant() {
       if (data.response) {
         setHistory([...newHistory, { role: "assistant", content: data.response }]);
         setAiResponse(data.response);
-        speakResponse(data.response);
+        await playCartesiaTTS(data.response);
       }
     } catch (err) {
       console.error("Error calling assistant API:", err);
@@ -101,30 +135,56 @@ export default function RealtimeAssistant() {
     }
   };
 
-  const speakResponse = (text: string) => {
-    if (!synthRef.current) return;
-    synthRef.current.cancel();
-    
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voices = synthRef.current.getVoices();
-    const goodVoice = voices.find((v: any) => v.name.includes("Google") || v.name.includes("Premium") || v.name.includes("Microsoft Zira"));
-    if (goodVoice) utterance.voice = goodVoice;
-    utterance.rate = 1.1;
+  const playCartesiaTTS = async (text: string) => {
+    try {
+      // 1. Fetch Cartesia Key
+      const authRes = await fetch('/api/auth/cartesia');
+      const { key: cartesiaKey } = await authRes.json();
+      
+      if (!cartesiaKey) throw new Error("No Cartesia key");
 
-    utterance.onstart = () => {
+      // 2. Initialize Cartesia WebSocket
+      const cartesia = new Cartesia({ apiKey: cartesiaKey });
+      
+      // 3. Play audio
       setIsSpeaking(true);
+      
+      // Simulate audio frequencies for the orb (since Web Audio API analysis on remote streams is complex for MVP)
       simulationIntervalRef.current = setInterval(() => {
         setVolumeLevel(Math.random() * 0.8 + 0.2);
       }, 100);
-    };
 
-    utterance.onend = () => {
+      // We use Cartesia's WebPlayer
+      const websocket = cartesia.tts.websocket({
+        container: "raw",
+        encoding: "pcm_f32le",
+        sampleRate: 44100
+      });
+      cartesiaWsRef.current = websocket;
+
+      await websocket.connect();
+      
+      const source = await websocket.send({
+        model_id: "sonic-english",
+        voice: {
+          mode: "id",
+          id: "a0e99841-438c-4a64-b679-ae501e7d6091", // High quality voice ID
+        },
+        transcript: text,
+      });
+
+      // Simple playback trigger, stopping visualizer when done
+      websocket.on("done", () => {
+        setIsSpeaking(false);
+        setVolumeLevel(0);
+        if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
+      });
+
+    } catch (err) {
+      console.error("Cartesia TTS Error:", err);
       setIsSpeaking(false);
-      setVolumeLevel(0);
       if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
-    };
-
-    synthRef.current.speak(utterance);
+    }
   };
 
   return (
@@ -153,17 +213,17 @@ export default function RealtimeAssistant() {
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-wider text-white uppercase">Voice AI Platform</h1>
-              <p className="text-blue-400 text-xs font-mono uppercase tracking-widest mt-1">Real-time Node</p>
+              <p className="text-blue-400 text-xs font-mono uppercase tracking-widest mt-1">Deepgram + Cartesia</p>
             </div>
           </header>
 
           {/* The Animated Orb */}
-          <div className="mt-20 mb-16 cursor-pointer" onClick={startListening}>
+          <div className="mt-20 mb-16 cursor-pointer z-50" onClick={startListening}>
             <OrbVisualizer isSpeaking={isSpeaking} volumeLevel={volumeLevel} />
           </div>
 
           {/* Jarvis Chat Interface (Floating Glass Card) */}
-          <div className="w-full max-w-2xl px-8 flex flex-col gap-6">
+          <div className="w-full max-w-2xl px-8 flex flex-col gap-6 z-10">
             
             {/* User Transcript */}
             <div className="flex justify-end w-full">
@@ -171,7 +231,7 @@ export default function RealtimeAssistant() {
                 <motion.div 
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-white/10 backdrop-blur-md border border-white/10 px-6 py-4 rounded-3xl rounded-tr-sm max-w-lg"
+                  className="bg-white/10 backdrop-blur-md border border-white/10 px-6 py-4 rounded-3xl rounded-tr-sm max-w-lg shadow-xl"
                 >
                   <p className="text-slate-200 text-lg">{transcript}</p>
                 </motion.div>
@@ -189,7 +249,6 @@ export default function RealtimeAssistant() {
                   animate={{ opacity: 1, y: 0 }}
                   className="bg-blue-900/30 backdrop-blur-xl border border-blue-500/30 px-6 py-5 rounded-3xl rounded-tl-sm w-full shadow-2xl relative overflow-hidden"
                 >
-                  {/* Subtle sweep animation on the card */}
                   <motion.div 
                     animate={{ x: ['-100%', '200%'] }}
                     transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
@@ -204,8 +263,8 @@ export default function RealtimeAssistant() {
 
           </div>
 
-          <div className="absolute bottom-12 text-slate-500 text-sm tracking-widest uppercase font-mono">
-            {isListening ? "Listening..." : "System Idle"}
+          <div className="absolute bottom-12 text-slate-500 text-sm tracking-widest uppercase font-mono z-10">
+            {isListening ? "Listening (Deepgram Active)..." : "System Idle"}
           </div>
         </div>
 
