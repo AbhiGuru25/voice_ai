@@ -282,7 +282,7 @@ export default function RealtimeAssistant() {
 
           </div>
 
-          <div className="static md:absolute mt-12 md:bottom-12 md:mt-0 text-slate-500 text-[10px] md:text-sm tracking-widest uppercase font-mono z-10">
+          <div className="mt-8 text-slate-500 text-[10px] md:text-xs tracking-widest uppercase font-mono z-10">
             {isListening ? "Mic Hot. Say anything to interrupt..." : "System Idle"}
           </div>
         </div>
