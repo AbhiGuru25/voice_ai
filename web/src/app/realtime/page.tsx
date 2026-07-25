@@ -207,7 +207,7 @@ export default function RealtimeAssistant() {
   };
 
   return (
-    <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col relative overflow-y-auto md:overflow-hidden ${inter.className}`}>
+    <div className={`h-screen bg-slate-950 text-slate-100 flex flex-col relative overflow-hidden ${inter.className}`}>
       
       {/* 1. Animated Topographical Background */}
       <div className="absolute inset-0 z-0 opacity-20 pointer-events-none fixed">
@@ -221,10 +221,10 @@ export default function RealtimeAssistant() {
       </div>
 
       {/* Split Screen Layout */}
-      <div className="relative z-10 w-full flex flex-col md:flex-row min-h-screen">
+      <div className="relative z-10 w-full h-full flex flex-col md:flex-row">
         
         {/* LEFT PANEL: The AI Persona */}
-        <div className="w-full md:w-2/3 min-h-screen md:h-screen flex flex-col items-center justify-start md:justify-center relative pt-24 md:pt-12 pb-12 border-b md:border-b-0 md:border-r border-white/5 bg-black/20 backdrop-blur-sm">
+        <div className="w-full md:w-2/3 h-[60vh] md:h-screen flex flex-col items-center justify-center relative pt-16 md:pt-12 pb-4 md:pb-12 border-b md:border-b-0 md:border-r border-white/5 bg-black/20 backdrop-blur-sm">
           
           <header className="absolute top-6 left-6 md:top-12 md:left-12 flex items-center gap-3 md:gap-4">
             <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-white/10 flex items-center justify-center border border-white/20">
@@ -237,12 +237,12 @@ export default function RealtimeAssistant() {
           </header>
 
           {/* The Animated Orb */}
-          <div className="mt-8 md:mt-20 mb-8 md:mb-16 cursor-pointer z-50 transform scale-75 md:scale-100" onClick={startListening}>
+          <div className="mt-4 md:mt-20 mb-4 md:mb-16 cursor-pointer z-50 transform scale-[0.6] md:scale-100" onClick={startListening}>
             <OrbVisualizer isSpeaking={isSpeaking} volumeLevel={volumeLevel} />
           </div>
 
           {/* Jarvis Chat Interface (Floating Glass Card) */}
-          <div className="w-full max-w-2xl px-4 md:px-8 flex flex-col gap-4 md:gap-6 z-10">
+          <div className="w-full max-w-2xl px-4 md:px-8 flex flex-col gap-2 md:gap-6 z-10">
             
             {/* User Transcript */}
             <div className="flex justify-end w-full">
@@ -288,7 +288,7 @@ export default function RealtimeAssistant() {
         </div>
 
         {/* RIGHT PANEL: Tool Dashboard */}
-        <div className="w-full md:w-1/3 min-h-[50vh] md:h-screen relative z-20">
+        <div className="w-full md:w-1/3 h-[40vh] md:h-screen relative z-20">
           <DynamicWidgets uiUpdate={uiState} />
         </div>
 
