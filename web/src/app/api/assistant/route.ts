@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
 
       // Execute the mock tool logic
       if (functionName === 'check_calendar') {
-        toolResult = "You have an All-Hands meeting at 4:00 PM today with the Engineering Team.";
+        toolResult = "You have a Product Sync at 10, lunch with Sarah, and an All-hands meeting at 4.";
         uiUpdate = {
           type: "calendar_view",
           data: {
