@@ -25,6 +25,7 @@ export default function RealtimeAssistant() {
   const [aiResponse, setAiResponse] = useState('');
   const [history, setHistory] = useState<any[]>([]);
   const [visionMode, setVisionMode] = useState<"none" | "screen" | "webcam">("none");
+  const [isDragging, setIsDragging] = useState(false);
   
   const recognitionRef = useRef<any>(null);
   const simulationIntervalRef = useRef<any>(null);
@@ -211,6 +212,56 @@ export default function RealtimeAssistant() {
     }
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.txt') && !file.name.endsWith('.md')) {
+        setUiState({ type: "ingest_failed", data: { message: "Only .txt and .md files are supported for now." } });
+        return;
+    }
+
+    if (file.size > 50000) { // 50KB limit to avoid Vercel timeouts
+        setUiState({ type: "ingest_failed", data: { message: "File too large. Please keep it under 50KB." } });
+        return;
+    }
+
+    setUiState({ type: "ingesting", data: { filename: file.name } });
+
+    try {
+        const text = await file.text();
+        const response = await fetch('/api/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: file.name, text }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            setUiState({ type: "ingest_success", data: { message: data.message } });
+        } else {
+            setUiState({ type: "ingest_failed", data: { message: data.error || "Failed to process document." } });
+        }
+    } catch (error) {
+        console.error("Drop error:", error);
+        setUiState({ type: "ingest_failed", data: { message: "Network error during ingestion." } });
+    }
+  };
+
   const playNativeTTS = (text: string) => {
     if (!window.speechSynthesis) return;
 
@@ -249,7 +300,12 @@ export default function RealtimeAssistant() {
   };
 
   return (
-    <div className={`h-screen bg-slate-950 text-slate-100 flex flex-col relative overflow-hidden ${inter.className}`}>
+    <div 
+      className={`h-screen bg-slate-950 text-slate-100 flex flex-col relative overflow-hidden ${inter.className}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       
       {/* 1. Animated Topographical Background */}
       <div className="absolute inset-0 z-0 opacity-20 pointer-events-none fixed">
@@ -263,7 +319,7 @@ export default function RealtimeAssistant() {
       </div>
 
       {/* Split Screen Layout */}
-      <div className="relative z-10 w-full h-full flex flex-col md:flex-row">
+      <div className={`relative z-10 w-full h-full flex flex-col md:flex-row transition-all duration-300 ${isDragging ? 'scale-[0.98] blur-[2px] opacity-50' : ''}`}>
         
         {/* LEFT PANEL: The AI Persona */}
         <div className="w-full md:w-2/3 h-[60vh] md:h-screen flex flex-col items-center justify-center relative pt-16 md:pt-12 pb-4 md:pb-12 border-b md:border-b-0 md:border-r border-white/5 bg-black/20 backdrop-blur-sm">
@@ -373,6 +429,17 @@ export default function RealtimeAssistant() {
         </div>
 
       </div>
+
+      {/* Drag Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-blue-900/20 backdrop-blur-sm border-4 border-dashed border-blue-500 rounded-3xl m-4 pointer-events-none">
+            <div className="flex flex-col items-center gap-4 animate-bounce">
+                <svg className="w-20 h-20 text-blue-400 drop-shadow-[0_0_15px_rgba(59,130,246,0.5)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                <h2 className="text-4xl font-bold text-white tracking-widest uppercase">Drop File Here</h2>
+                <p className="text-blue-300 font-mono">.txt and .md files supported</p>
+            </div>
+        </div>
+      )}
 
       {/* Global Spacebar Listener */}
       <button 
