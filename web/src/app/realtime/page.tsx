@@ -213,7 +213,7 @@ export default function RealtimeAssistant() {
             fetch('/api/ingest', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filename: `Conversation_${sid || 'Session'}`, text: turnMemory }),
+                body: JSON.stringify({ filename: `Conversation_${sessionId || 'Session'}`, text: turnMemory }),
             }).catch(e => console.error("Memory embed failed", e));
           }
         }).catch(err => {
