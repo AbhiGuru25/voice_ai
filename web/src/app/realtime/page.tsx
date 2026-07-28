@@ -31,6 +31,7 @@ export default function RealtimeAssistant() {
   const [sessionId, setSessionId] = useState('');
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [textInput, setTextInput] = useState('');
   
   const recognitionRef = useRef<any>(null);
   const simulationIntervalRef = useRef<any>(null);
@@ -191,6 +192,20 @@ export default function RealtimeAssistant() {
       console.error("Failed to start vision:", err);
       setVisionMode("none");
     }
+  };
+
+  const handleTextSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!textInput.trim()) return;
+    
+    // Stop speaking if AI is talking
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+    if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
+    
+    setTranscript(textInput);
+    processUserQuery(textInput);
+    setTextInput('');
   };
 
   const processUserQuery = async (text: string) => {
@@ -570,8 +585,27 @@ export default function RealtimeAssistant() {
 
           </div>
 
-          <div className="mt-8 text-slate-500 text-[10px] md:text-xs tracking-widest uppercase font-mono z-10">
-            {isListening ? "Mic Hot. Say anything to interrupt..." : "System Idle"}
+          <div className="mt-8 z-10 w-full max-w-2xl px-4 md:px-8">
+            <div className="text-slate-500 text-[10px] md:text-xs tracking-widest uppercase font-mono text-center mb-4">
+              {isListening ? "Mic Hot. Say anything to interrupt..." : "System Idle"}
+            </div>
+            
+            <form onSubmit={handleTextSubmit} className="flex gap-2 w-full">
+              <input 
+                type="text" 
+                value={textInput}
+                onChange={e => setTextInput(e.target.value)}
+                placeholder="Or type a message..." 
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500/50 backdrop-blur-md transition-all text-sm"
+              />
+              <button 
+                type="submit" 
+                disabled={!textInput.trim() || isListening}
+                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl px-6 font-bold transition-all flex items-center justify-center text-sm"
+              >
+                Send
+              </button>
+            </form>
           </div>
         </div>
 
