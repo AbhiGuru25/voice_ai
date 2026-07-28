@@ -10,9 +10,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    const host = request.headers.get('host') || 'localhost:3000';
-    const protocol = host.includes('localhost') ? 'http' : 'https';
-    const redirectUri = `${protocol}://${host}/api/auth/callback/google`;
+    const requestUrl = new URL(request.url);
+    const redirectUri = `${requestUrl.origin}/api/auth/callback/google`;
 
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
