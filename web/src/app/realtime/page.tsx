@@ -5,11 +5,6 @@ import { motion } from 'framer-motion';
 import { Inter } from 'next/font/google';
 import OrbVisualizer from '@/components/OrbVisualizer';
 import DynamicWidgets from '@/components/DynamicWidgets';
-import * as pdfjsLib from 'pdfjs-dist';
-// Setup PDF worker
-if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-}
 
 // Type definitions for Web Speech API
 declare global {
@@ -273,6 +268,12 @@ export default function RealtimeAssistant() {
         let textToIngest = "";
 
         if (isPdf) {
+            setUiState({ type: "ingesting", data: { filename: file.name, progress: "Loading PDF Engine..." } });
+            // Dynamically import to avoid Next.js Out-Of-Memory build errors
+            // @ts-ignore
+            const pdfjsLib = await import('pdfjs-dist/build/pdf.min.mjs');
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
             const arrayBuffer = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             let fullText = "";
