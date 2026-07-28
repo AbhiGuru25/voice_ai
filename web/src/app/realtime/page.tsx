@@ -5,10 +5,16 @@ import { motion } from 'framer-motion';
 import { Inter } from 'next/font/google';
 import OrbVisualizer from '@/components/OrbVisualizer';
 import DynamicWidgets from '@/components/DynamicWidgets';
-import { createClient } from '@deepgram/sdk';
-import { Cartesia } from '@cartesia/cartesia-js';
 
 const inter = Inter({ subsets: ['latin'] });
+
+// Type definitions for Web Speech API
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
 
 export default function RealtimeAssistant() {
   const [isListening, setIsListening] = useState(false);
@@ -18,135 +24,122 @@ export default function RealtimeAssistant() {
   const [transcript, setTranscript] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [history, setHistory] = useState<any[]>([]);
-  const [latencyMetrics, setLatencyMetrics] = useState<any>(null);
-  const performanceRef = useRef({ t0: 0, t1: 0, t2: 0, t3: 0 });
   
-  const deepgramWsRef = useRef<any>(null);
-  const cartesiaWsRef = useRef<any>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recognitionRef = useRef<any>(null);
   const simulationIntervalRef = useRef<any>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    // Initialize Web Speech API
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'hi-IN'; // Native Hindi support for free!
+      
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = async (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        
+        // INTERRUPT: Stop AI if user starts speaking
+        if ((interimTranscript || finalTranscript) && isSpeaking) {
+          window.speechSynthesis.cancel();
+          setIsSpeaking(false);
+          setAiResponse("Interrupted...");
+          if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
+        }
+
+        if (finalTranscript) {
+          setTranscript(prev => prev ? prev + " " + finalTranscript : finalTranscript);
+          await processUserQuery(finalTranscript);
+        } else if (interimTranscript) {
+          setTranscript(prev => prev ? prev + " " + interimTranscript : interimTranscript);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech Recognition Error:", event.error);
+        if (event.error === 'not-allowed') {
+            setIsListening(false);
+        }
+      };
+
+      recognition.onend = () => {
+        // Auto-restart if we are supposed to be listening
+        // Only if we haven't manually stopped
+        if (recognitionRef.current) {
+            try { recognitionRef.current.start(); } catch(e) {}
+        }
+      };
+
+      recognitionRef.current = recognition;
+    } else {
+      console.error("Web Speech API not supported in this browser.");
+    }
+
+    return () => {
+      stopSystem();
+    };
+  }, [isSpeaking]);
 
   const stopSystem = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop();
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null; // Prevent auto-restart
     }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-    }
-    if (deepgramWsRef.current) {
-      deepgramWsRef.current.finish();
-    }
-    if (cartesiaWsRef.current) {
-      cartesiaWsRef.current.disconnect();
-    }
+    window.speechSynthesis.cancel();
+    if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
     setIsListening(false);
     setIsSpeaking(false);
   };
 
-  const startListening = async () => {
+  const startListening = () => {
+    if (!recognitionRef.current) return;
+    
     setUiState(null);
     setTranscript('');
     setAiResponse('');
     
-    // Hard stop anything currently running before restarting the master loop
-    if (isSpeaking && cartesiaWsRef.current) {
-      cartesiaWsRef.current.disconnect();
-      setIsSpeaking(false);
-      if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
-    }
+    // Stop any ongoing speech
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+    if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
     
-    setIsListening(true);
-
     try {
-      const authRes = await fetch('/api/auth/deepgram');
-      const { key: deepgramKey } = await authRes.json();
-      
-      if (!deepgramKey) throw new Error("No Deepgram key");
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const deepgram = createClient(deepgramKey);
-      
-      // Continuous listen
-      const connection = deepgram.listen.live({
-        model: "nova-2",
-        language: "hi", // Updated for Hindi/Gujarati testing
-        smart_format: true,
-        endpointing: 500, // 500ms of silence = end of utterance
-      });
-
-      deepgramWsRef.current = connection;
-
-      connection.on('open', () => {
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-
-        mediaRecorder.addEventListener('dataavailable', event => {
-          if (event.data.size > 0 && connection.getReadyState() === 1) {
-            connection.send(event.data);
-          }
-        });
-
-        mediaRecorder.start(250);
-      });
-
-      connection.on('Results', async (data: any) => {
-        const transcriptSegment = data.channel.alternatives[0].transcript;
-        
-        // --- INTERRUPTION LOGIC ---
-        // If we hear the user speaking AND Cartesia is currently talking, kill Cartesia instantly.
-        if (transcriptSegment && isSpeaking && cartesiaWsRef.current) {
-            cartesiaWsRef.current.disconnect();
-            setIsSpeaking(false);
-            setAiResponse("Interrupted...");
-            if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
-        }
-        
-        if (transcriptSegment && data.speech_final) {
-          performanceRef.current.t0 = performance.now();
-          performanceRef.current.t3 = 0; // Reset TTFB marker
-          
-          setTranscript(prev => prev ? prev + " " + transcriptSegment : transcriptSegment);
-          
-          // DO NOT stop recording. Keep the mic hot for the next interaction.
-          // Just fire off the query to the LLM.
-          await processUserQuery(transcriptSegment);
-          
-        } else if (transcriptSegment) {
-          setTranscript(prev => prev ? prev + " " + transcriptSegment : transcriptSegment);
-        }
-      });
-
-    } catch (err) {
-      console.error("Microphone or Deepgram Error:", err);
-      setIsListening(false);
+      recognitionRef.current.start();
+    } catch (e) {
+      // Already started
     }
   };
 
   const processUserQuery = async (text: string) => {
     try {
-      performanceRef.current.t1 = performance.now();
-
-      // Create a fresh history copy specifically for this call
       setHistory(prev => {
         const newHistory = [...prev, { role: "user", content: text }];
         
-        // Execute the fetch inside here to ensure we have the absolute latest state
         fetch('/api/assistant', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text, history: newHistory }),
         }).then(res => res.json()).then(async data => {
-          performanceRef.current.t2 = performance.now();
-          
           if (data.uiUpdate) setUiState(data.uiUpdate);
           
           if (data.response) {
             setHistory(h => [...h, { role: "assistant", content: data.response }]);
             setAiResponse(data.response);
-            await playCartesiaTTS(data.response);
+            playNativeTTS(data.response);
           }
         }).catch(err => {
             console.error("API Error:", err);
@@ -163,71 +156,41 @@ export default function RealtimeAssistant() {
     }
   };
 
-  const playCartesiaTTS = async (text: string) => {
-    try {
-      const authRes = await fetch('/api/auth/cartesia');
-      const { key: cartesiaKey } = await authRes.json();
-      
-      if (!cartesiaKey) throw new Error("No Cartesia key");
+  const playNativeTTS = (text: string) => {
+    if (!window.speechSynthesis) return;
 
-      const cartesia = new Cartesia({ apiKey: cartesiaKey });
-      
+    window.speechSynthesis.cancel(); // Stop anything currently playing
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    
+    // Try to find a Hindi voice, fallback to default
+    const voices = window.speechSynthesis.getVoices();
+    const hindiVoice = voices.find(v => v.lang.includes('hi') || v.lang.includes('IN'));
+    if (hindiVoice) utterance.voice = hindiVoice;
+    
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => {
       setIsSpeaking(true);
-      
       simulationIntervalRef.current = setInterval(() => {
         setVolumeLevel(Math.random() * 0.8 + 0.2);
       }, 100);
+    };
 
-      const websocket = await cartesia.tts.websocket({
-        container: "raw",
-        encoding: "pcm_f32le",
-        sampleRate: 44100
-      });
-      cartesiaWsRef.current = websocket;
-
-      await websocket.connect();
-      
-      const source = await websocket.send({
-        model_id: "sonic-multilingual", // Switched to multilingual model for Hindi
-        voice: {
-          mode: "id",
-          id: "a0e99841-438c-4a64-b679-ae501e7d6091",
-        },
-        transcript: text,
-        context_id: Math.random().toString(36).substring(7),
-        output_format: {
-          container: "raw",
-          encoding: "pcm_f32le",
-          sample_rate: 44100
-        }
-      });
-
-      // Hook into raw websocket to catch first audio byte for latency metrics
-      if (websocket.socket) {
-        websocket.socket.addEventListener("message", () => {
-          if (performanceRef.current.t3 === 0) {
-            performanceRef.current.t3 = performance.now();
-            setLatencyMetrics({
-              sttToLlm: (performanceRef.current.t1 - performanceRef.current.t0).toFixed(0),
-              llmResponse: (performanceRef.current.t2 - performanceRef.current.t1).toFixed(0),
-              ttsFirstByte: (performanceRef.current.t3 - performanceRef.current.t2).toFixed(0),
-              totalTTFB: (performanceRef.current.t3 - performanceRef.current.t0).toFixed(0)
-            });
-          }
-        });
-      }
-
-      websocket.on("done", () => {
-        setIsSpeaking(false);
-        setVolumeLevel(0);
-        if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
-      });
-
-    } catch (err) {
-      console.error("Cartesia TTS Error:", err);
+    utterance.onend = () => {
       setIsSpeaking(false);
+      setVolumeLevel(0);
       if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
-    }
+    };
+
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      setVolumeLevel(0);
+      if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
+    };
+
+    window.speechSynthesis.speak(utterance);
   };
 
   return (
@@ -256,25 +219,20 @@ export default function RealtimeAssistant() {
             </div>
             <div>
               <h1 className="text-lg md:text-xl font-bold tracking-wider text-white uppercase">Voice AI Platform</h1>
-              <p className="text-blue-400 text-[10px] md:text-xs font-mono uppercase tracking-widest mt-1">Deepgram + Cartesia</p>
+              <p className="text-green-400 text-[10px] md:text-xs font-mono uppercase tracking-widest mt-1">100% Free Stack (Browser Native)</p>
             </div>
           </header>
 
-          {/* Debug Telemetry Overlay */}
-          {latencyMetrics && (
-            <div className="absolute top-4 right-4 md:top-8 md:right-8 bg-black/80 border border-green-500/50 p-4 rounded-xl text-green-400 font-mono text-[10px] md:text-xs z-50 shadow-[0_0_15px_rgba(34,197,94,0.2)] backdrop-blur-md min-w-[250px]">
-              <h3 className="font-bold mb-2 text-green-300 border-b border-green-500/30 pb-1">Latency Telemetry (TTFB)</h3>
+          {/* Telemetry Overlay */}
+          <div className="absolute top-4 right-4 md:top-8 md:right-8 bg-black/80 border border-green-500/50 p-4 rounded-xl text-green-400 font-mono text-[10px] md:text-xs z-50 shadow-[0_0_15px_rgba(34,197,94,0.2)] backdrop-blur-md min-w-[200px]">
+              <h3 className="font-bold mb-2 text-green-300 border-b border-green-500/30 pb-1">Cost Telemetry</h3>
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                <span>VAD (Speech Final):</span> <span className="text-right">T0 (0ms)</span>
-                <span>STT -&gt; LLM Request:</span> <span className="text-right">+{latencyMetrics.sttToLlm}ms</span>
-                <span>LLM Generation (Groq):</span> <span className="text-right">+{latencyMetrics.llmResponse}ms</span>
-                <span>TTS Network (Cartesia):</span> <span className="text-right">+{latencyMetrics.ttsFirstByte}ms</span>
-                <div className="col-span-2 border-t border-green-500/30 mt-1 pt-2 font-bold text-green-300 flex justify-between">
-                    <span>Total TTFB:</span> <span>{latencyMetrics.totalTTFB}ms</span>
-                </div>
+                <span>STT Network:</span> <span className="text-right">0ms (Local)</span>
+                <span>TTS Network:</span> <span className="text-right">0ms (Local)</span>
+                <span>Deepgram Cost:</span> <span className="text-right">$0.00/min</span>
+                <span>Cartesia Cost:</span> <span className="text-right">$0.00/min</span>
               </div>
-            </div>
-          )}
+          </div>
 
           {/* The Animated Orb */}
           <div className="mt-4 md:mt-20 mb-4 md:mb-16 cursor-pointer z-50 transform scale-[0.6] md:scale-100" onClick={startListening}>
