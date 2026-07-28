@@ -3,10 +3,10 @@ import { google } from 'googleapis';
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  // Ensure this matches the redirect URI in Google Cloud Console
-  process.env.NODE_ENV === 'production' 
-    ? 'https://voice-ai-henna.vercel.app/api/auth/google' // Fallback or standard vercel URL
-    : 'http://localhost:3000/api/auth/google'
+  // Use Vercel URL if in production, else fallback to localhost
+  process.env.VERCEL_URL 
+    ? `https://${process.env.VERCEL_URL}/api/auth/callback/google` 
+    : 'http://localhost:3000/api/auth/callback/google'
 );
 
 // We need the refresh token from env
