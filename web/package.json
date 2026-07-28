@@ -13,6 +13,7 @@
     "@deepgram/sdk": "^3.9.0",
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.110.7",
+    "@xenova/transformers": "^2.17.2",
     "framer-motion": "^12.42.2",
     "google-tts-api": "^2.0.2",
     "googleapis": "^173.0.0",

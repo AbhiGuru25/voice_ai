@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
+import { getTodaysEvents } from '@/lib/google-calendar';
+import { searchDocuments } from '@/lib/rag-embeddings';
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -37,6 +39,20 @@ const tools = [
           attendees: { type: "array", items: { type: "string" } },
         },
         required: ["title", "time"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "search_knowledge_base",
+      description: "Search the user's second brain / knowledge base for information from their documents.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+        },
+        required: ["query"],
       },
     },
   },
@@ -80,23 +96,53 @@ export async function POST(req: NextRequest) {
       let toolResult = "";
       let uiUpdate = null;
 
-      // Execute the mock tool logic
+      // Execute the actual tool logic
       if (functionName === 'check_calendar') {
-        toolResult = "You have a Product Sync at 10, lunch with Sarah, and an All-hands meeting at 4.";
-        uiUpdate = {
-          type: "calendar_view",
-          data: {
-            title: "All-Hands Meeting",
-            time: "4:00 PM - 5:00 PM",
-            attendees: ["Engineering Team", "Product Team"],
-          }
-        };
+        const { events, error, mock } = await getTodaysEvents();
+        
+        if (mock) {
+            toolResult = "You have a Product Sync at 10, lunch with Sarah, and an All-hands meeting at 4.";
+            uiUpdate = {
+                type: "calendar_view",
+                data: {
+                    title: "All-Hands Meeting",
+                    time: "4:00 PM - 5:00 PM",
+                    attendees: ["Engineering Team", "Product Team"],
+                }
+            };
+        } else {
+            if (events.length === 0) {
+                toolResult = "You have no meetings scheduled for today.";
+            } else {
+                const eventSummary = events.map((e: any) => `${e.title} at ${new Date(e.time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`).join(', ');
+                toolResult = `Your meetings today are: ${eventSummary}.`;
+                
+                // Highlight the first event in the UI
+                uiUpdate = {
+                    type: "calendar_view",
+                    data: {
+                        title: events[0].title,
+                        time: new Date(events[0].time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+                        attendees: events[0].attendees ? events[0].attendees.split(', ') : ["Unknown"],
+                    }
+                };
+            }
+        }
       } else if (functionName === 'schedule_meeting') {
         toolResult = `Successfully scheduled ${functionArgs.title} for ${functionArgs.time}.`;
         uiUpdate = {
           type: "calendar_add",
           data: functionArgs
         };
+      } else if (functionName === 'search_knowledge_base') {
+        const { data, error } = await searchDocuments(functionArgs.query);
+        if (error) {
+            toolResult = "Error searching knowledge base: " + error;
+        } else if (data && data.length > 0) {
+            toolResult = `Found the following information in the knowledge base: \n` + data.map((d: any) => d.content).join('\n\n');
+        } else {
+            toolResult = "No relevant information found in the knowledge base.";
+        }
       }
 
       // Now, make a second call to Groq to generate a natural response including the tool result
