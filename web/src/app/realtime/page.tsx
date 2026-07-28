@@ -26,6 +26,7 @@ export default function RealtimeAssistant() {
   const [history, setHistory] = useState<any[]>([]);
   const [visionMode, setVisionMode] = useState<"none" | "screen" | "webcam">("none");
   const [isDragging, setIsDragging] = useState(false);
+  const [emotionState, setEmotionState] = useState('neutral');
   
   const recognitionRef = useRef<any>(null);
   const simulationIntervalRef = useRef<any>(null);
@@ -106,6 +107,7 @@ export default function RealtimeAssistant() {
     if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
     setIsListening(false);
     setIsSpeaking(false);
+    setEmotionState('neutral');
   };
 
   const startListening = () => {
@@ -118,6 +120,7 @@ export default function RealtimeAssistant() {
     // Stop any ongoing speech
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
+    setEmotionState('neutral');
     if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
     
     try {
@@ -267,15 +270,57 @@ export default function RealtimeAssistant() {
 
     window.speechSynthesis.cancel(); // Stop anything currently playing
 
-    const utterance = new SpeechSynthesisUtterance(text);
+    // --- DEFENSIVE EMOTION PARSING ---
+    let cleanText = text;
+    let pitch = 1.0;
+    let rate = 1.0;
+    let currentMood = 'neutral';
+
+    // Case-insensitive regex to capture all tags in brackets e.g. [EXCITED], [fast, sad]
+    const tagMatches = text.match(/\[(.*?)\]/gi);
+    
+    if (tagMatches) {
+        // Strip all brackets from the spoken text
+        cleanText = text.replace(/\[(.*?)\]/gi, '').trim();
+        
+        // Analyze the tags
+        const allTags = tagMatches.join(' ').toLowerCase();
+        
+        if (allTags.includes('excited')) {
+            pitch = 1.3;
+            rate = 1.1;
+            currentMood = 'excited';
+        } else if (allTags.includes('sad')) {
+            pitch = 0.7;
+            rate = 0.8;
+            currentMood = 'sad';
+        } else if (allTags.includes('fast')) {
+            pitch = 1.0;
+            rate = 1.3;
+            currentMood = 'fast';
+        } else if (allTags.includes('slow')) {
+            pitch = 1.0;
+            rate = 0.7;
+            currentMood = 'slow';
+        } else if (allTags.includes('serious')) {
+            pitch = 0.8;
+            rate = 0.9;
+            currentMood = 'serious';
+        }
+    }
+    
+    setEmotionState(currentMood);
+    // -----------------------------------
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     
     // Try to find a Hindi voice, fallback to default
     const voices = window.speechSynthesis.getVoices();
     const hindiVoice = voices.find(v => v.lang.includes('hi') || v.lang.includes('IN'));
     if (hindiVoice) utterance.voice = hindiVoice;
     
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
+    utterance.rate = rate;
+    utterance.pitch = pitch;
 
     utterance.onstart = () => {
       setIsSpeaking(true);
@@ -287,12 +332,14 @@ export default function RealtimeAssistant() {
     utterance.onend = () => {
       setIsSpeaking(false);
       setVolumeLevel(0);
+      setEmotionState('neutral');
       if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
     };
 
     utterance.onerror = () => {
       setIsSpeaking(false);
       setVolumeLevel(0);
+      setEmotionState('neutral');
       if (simulationIntervalRef.current) clearInterval(simulationIntervalRef.current);
     };
 
@@ -301,7 +348,14 @@ export default function RealtimeAssistant() {
 
   return (
     <div 
-      className={`h-screen bg-slate-950 text-slate-100 flex flex-col relative overflow-hidden ${inter.className}`}
+      className={`h-screen bg-slate-950 text-slate-100 flex flex-col relative overflow-hidden ${inter.className} transition-colors duration-1000`}
+      style={{
+          backgroundColor: 
+            emotionState === 'excited' ? 'rgba(30, 25, 0, 1)' :
+            emotionState === 'sad' ? 'rgba(0, 10, 30, 1)' :
+            emotionState === 'serious' ? 'rgba(30, 0, 0, 1)' :
+            'rgb(2 6 23)' // slate-950 default
+      }}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -395,14 +449,24 @@ export default function RealtimeAssistant() {
 
             {/* AI Chat Bubble */}
             <div className="flex items-start gap-3 md:gap-4 w-full">
-              <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-blue-600/20 border border-blue-500/50 flex flex-shrink-0 items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.5)]">
-                <svg className="w-5 h-5 md:w-6 md:h-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+              <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full border flex flex-shrink-0 items-center justify-center transition-all duration-500 shadow-[0_0_15px_rgba(59,130,246,0.5)] ${
+                  emotionState === 'excited' ? 'bg-yellow-600/20 border-yellow-500/50 text-yellow-400' :
+                  emotionState === 'sad' ? 'bg-blue-600/20 border-blue-500/50 text-blue-400' :
+                  emotionState === 'serious' ? 'bg-red-600/20 border-red-500/50 text-red-400' :
+                  'bg-blue-600/20 border-blue-500/50 text-blue-400'
+              }`}>
+                <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div className="flex-1">
                 <motion.div 
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-blue-900/30 backdrop-blur-xl border border-blue-500/30 px-4 py-3 md:px-6 md:py-5 rounded-2xl md:rounded-3xl rounded-tl-sm w-full shadow-2xl relative overflow-hidden"
+                  className={`backdrop-blur-xl border px-4 py-3 md:px-6 md:py-5 rounded-2xl md:rounded-3xl rounded-tl-sm w-full shadow-2xl relative overflow-hidden transition-all duration-500 ${
+                    emotionState === 'excited' ? 'bg-yellow-900/30 border-yellow-500/30' :
+                    emotionState === 'sad' ? 'bg-blue-900/30 border-blue-500/30' :
+                    emotionState === 'serious' ? 'bg-red-900/30 border-red-500/30' :
+                    'bg-blue-900/30 border-blue-500/30'
+                  }`}
                 >
                   <motion.div 
                     animate={{ x: ['-100%', '200%'] }}
@@ -410,7 +474,8 @@ export default function RealtimeAssistant() {
                     className="absolute top-0 bottom-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-[-20deg]"
                   />
                   <p className="text-white text-sm md:text-xl leading-relaxed relative z-10">
-                    {aiResponse || "I am online. Tap the orb or press Spacebar to begin."}
+                    {/* Only show the clean text in the UI by stripping tags */}
+                    {aiResponse ? aiResponse.replace(/\[(.*?)\]/gi, '').trim() : "I am online. Tap the orb or press Spacebar to begin."}
                   </p>
                 </motion.div>
               </div>

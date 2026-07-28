@@ -108,7 +108,12 @@ export async function POST(req: NextRequest) {
         You are engaging in a fast, voice-based conversation. 
         Keep your responses very concise and conversational (1-2 sentences max). 
         You have access to tools. If the user asks about their schedule or wants to book a meeting, use the tools provided.
-        Do NOT use markdown, emojis, or formatting in your response. Just plain spoken text.`,
+        Do NOT use markdown, emojis, or formatting in your response. Just plain spoken text.
+        
+        CRITICAL: You MUST prepend every response with a single emotion tag in brackets to set your vocal tone.
+        Available tags: [neutral], [excited], [sad], [fast], [slow], [serious].
+        Example: "[excited] I just found that in your notes!"
+        Example: "[serious] Let me double check that for you."`,
       },
       ...(history || []),
       { role: "user" as const, content: userMessageContent },
