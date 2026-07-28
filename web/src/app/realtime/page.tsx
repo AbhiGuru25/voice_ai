@@ -5,8 +5,11 @@ import { motion } from 'framer-motion';
 import { Inter } from 'next/font/google';
 import OrbVisualizer from '@/components/OrbVisualizer';
 import DynamicWidgets from '@/components/DynamicWidgets';
-
-const inter = Inter({ subsets: ['latin'] });
+import * as pdfjsLib from 'pdfjs-dist';
+// Setup PDF worker
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+}
 
 // Type definitions for Web Speech API
 declare global {
@@ -27,12 +30,21 @@ export default function RealtimeAssistant() {
   const [visionMode, setVisionMode] = useState<"none" | "screen" | "webcam">("none");
   const [isDragging, setIsDragging] = useState(false);
   const [emotionState, setEmotionState] = useState('neutral');
+  const [sessionId, setSessionId] = useState('');
   
   const recognitionRef = useRef<any>(null);
   const simulationIntervalRef = useRef<any>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
+    // Generate or retrieve Session ID for persistent memory
+    let sid = localStorage.getItem('voice_ai_session');
+    if (!sid) {
+      sid = crypto.randomUUID();
+      localStorage.setItem('voice_ai_session', sid);
+    }
+    setSessionId(sid);
+
     // Initialize Web Speech API
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -199,6 +211,15 @@ export default function RealtimeAssistant() {
             setHistory(h => [...h, { role: "assistant", content: data.response }]);
             setAiResponse(data.response);
             playNativeTTS(data.response);
+            
+            // Asynchronously embed this conversation turn into the RAG Second Brain for long-term memory
+            // We do not wait for this to finish, nor do we show a UI update. Silent memory formation.
+            const turnMemory = `User said: ${text}\nAssistant replied: ${data.response}`;
+            fetch('/api/ingest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: `Conversation_${sid || 'Session'}`, text: turnMemory }),
+            }).catch(e => console.error("Memory embed failed", e));
           }
         }).catch(err => {
             console.error("API Error:", err);
@@ -232,36 +253,75 @@ export default function RealtimeAssistant() {
     const file = e.dataTransfer.files[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.txt') && !file.name.endsWith('.md')) {
-        setUiState({ type: "ingest_failed", data: { message: "Only .txt and .md files are supported for now." } });
+    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+    const isText = file.name.endsWith('.txt') || file.name.endsWith('.md');
+
+    if (!isText && !isPdf) {
+        setUiState({ type: "ingest_failed", data: { message: "Only .txt, .md, and .pdf files are supported for now." } });
         return;
     }
 
-    if (file.size > 50000) { // 50KB limit to avoid Vercel timeouts
-        setUiState({ type: "ingest_failed", data: { message: "File too large. Please keep it under 50KB." } });
+    // For raw text, keep the strict 50KB limit to avoid timeout
+    if (isText && file.size > 50000) { 
+        setUiState({ type: "ingest_failed", data: { message: "Text file too large. Please keep it under 50KB." } });
         return;
     }
 
-    setUiState({ type: "ingesting", data: { filename: file.name } });
+    setUiState({ type: "ingesting", data: { filename: file.name, progress: "Extracting text..." } });
 
     try {
-        const text = await file.text();
-        const response = await fetch('/api/ingest', {
-            method: 'POST',
+        let textToIngest = "";
+
+        if (isPdf) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let fullText = "";
+            for (let i = 1; i <= pdf.numPages; i++) {
+                setUiState({ type: "ingesting", data: { filename: file.name, progress: `Reading page ${i}/${pdf.numPages}` } });
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map((item: any) => item.str).join(" ");
+                fullText += pageText + "\n";
+            }
+            textToIngest = fullText.trim();
+            
+            if (!textToIngest) {
+                setUiState({ type: "ingest_failed", data: { message: "No extractable text found in this PDF (might be scanned images)." } });
+                return;
+            }
+        } else {
+            textToIngest = await file.text();
+        }
+
+        // To prevent Vercel timeouts on massive PDFs, we slice the text into 50,000 char blocks (approx 100 chunks) and batch request it
+        const batchSize = 50000;
+        let successCount = 0;
+        const totalBatches = Math.ceil(textToIngest.length / batchSize);
+
+        for (let i = 0; i < totalBatches; i++) {
+            setUiState({ type: "ingesting", data: { filename: file.name, progress: `Embedding batch ${i + 1}/${totalBatches}...` } });
+            
+            const textBatch = textToIngest.slice(i * batchSize, (i + 1) * batchSize);
+            const response = await fetch('/api/ingest', {
+                method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename: file.name, text }),
+            body: JSON.stringify({ filename: file.name, text: textBatch }),
         });
 
         const data = await response.json();
 
         if (response.ok) {
-            setUiState({ type: "ingest_success", data: { message: data.message } });
+            successCount += data.chunksProcessed || 0;
         } else {
-            setUiState({ type: "ingest_failed", data: { message: data.error || "Failed to process document." } });
+            throw new Error(data.error || "Failed to process document.");
         }
-    } catch (error) {
+    }
+
+    setUiState({ type: "ingest_success", data: { message: `Successfully embedded ${successCount} semantic chunks into memory.` } });
+
+    } catch (error: any) {
         console.error("Drop error:", error);
-        setUiState({ type: "ingest_failed", data: { message: "Network error during ingestion." } });
+        setUiState({ type: "ingest_failed", data: { message: error.message || "Network error during ingestion." } });
     }
   };
 
@@ -501,7 +561,7 @@ export default function RealtimeAssistant() {
             <div className="flex flex-col items-center gap-4 animate-bounce">
                 <svg className="w-20 h-20 text-blue-400 drop-shadow-[0_0_15px_rgba(59,130,246,0.5)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
                 <h2 className="text-4xl font-bold text-white tracking-widest uppercase">Drop File Here</h2>
-                <p className="text-blue-300 font-mono">.txt and .md files supported</p>
+                <p className="text-blue-300 font-mono">.txt, .md, and .pdf supported (images skipped)</p>
             </div>
         </div>
       )}

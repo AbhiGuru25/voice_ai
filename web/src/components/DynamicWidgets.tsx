@@ -29,9 +29,46 @@ export default function DynamicWidgets({ uiUpdate }: { uiUpdate: any }) {
       
       {/* Header */}
       <div className="mb-6 md:mb-8 text-center md:text-left mt-4 md:mt-0">
-        <h2 className="text-xl md:text-2xl font-bold tracking-wide text-white mb-1">Your Day</h2>
-        <p className="text-slate-400 text-xs md:text-sm">Wednesday, Oct 22</p>
+        <h2 className="text-xl md:text-2xl font-bold tracking-wide text-white mb-1">Your Dashboard</h2>
+        <p className="text-slate-400 text-xs md:text-sm">Real-time Activity</p>
       </div>
+
+      {uiUpdate?.type === 'pending_action' && (
+        <motion.div initial={{opacity: 0, scale: 0.9}} animate={{opacity: 1, scale: 1}} className="mb-6 p-4 rounded-xl bg-orange-900/40 border border-orange-500/50 shadow-[0_0_20px_rgba(249,115,22,0.3)] backdrop-blur-md">
+          <h3 className="text-orange-400 font-bold mb-2">Pending Action: {uiUpdate.data.action}</h3>
+          <pre className="text-xs text-orange-200 whitespace-pre-wrap">{JSON.stringify(uiUpdate.data.details, null, 2)}</pre>
+          <div className="mt-3 text-xs text-orange-400 animate-pulse">Waiting for your verbal confirmation ("Yes, send it")...</div>
+        </motion.div>
+      )}
+
+      {uiUpdate?.type === 'ingesting' && (
+        <motion.div initial={{opacity: 0, scale: 0.9}} animate={{opacity: 1, scale: 1}} className="mb-6 p-4 rounded-xl bg-purple-900/40 border border-purple-500/50 shadow-[0_0_20px_rgba(168,85,247,0.3)] backdrop-blur-md">
+          <h3 className="text-purple-400 font-bold mb-1 animate-pulse">Ingesting Document...</h3>
+          <p className="text-sm text-purple-200 truncate">{uiUpdate.data.filename}</p>
+          <p className="text-xs text-purple-300 mt-2 font-mono">{uiUpdate.data.progress || "Processing..."}</p>
+        </motion.div>
+      )}
+
+      {uiUpdate?.type === 'ingest_success' && (
+        <motion.div initial={{opacity: 0, scale: 0.9}} animate={{opacity: 1, scale: 1}} className="mb-6 p-4 rounded-xl bg-green-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.3)] backdrop-blur-md">
+          <h3 className="text-green-400 font-bold mb-1">Upload Complete</h3>
+          <p className="text-sm text-green-200">{uiUpdate.data.message}</p>
+        </motion.div>
+      )}
+
+      {uiUpdate?.type === 'ingest_failed' && (
+        <motion.div initial={{opacity: 0, scale: 0.9}} animate={{opacity: 1, scale: 1}} className="mb-6 p-4 rounded-xl bg-red-900/40 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)] backdrop-blur-md">
+          <h3 className="text-red-400 font-bold mb-1">Upload Failed</h3>
+          <p className="text-sm text-red-200">{uiUpdate.data.message}</p>
+        </motion.div>
+      )}
+
+      {uiUpdate?.type === 'action_success' && (
+        <motion.div initial={{opacity: 0, scale: 0.9}} animate={{opacity: 1, scale: 1}} className="mb-6 p-4 rounded-xl bg-green-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.3)] backdrop-blur-md">
+          <h3 className="text-green-400 font-bold mb-1">Success!</h3>
+          <p className="text-sm text-green-200">{uiUpdate.data.message}</p>
+        </motion.div>
+      )}
 
       {/* Calendar List */}
       <div className="flex-1 overflow-y-auto space-y-3 md:space-y-4 md:pr-4 custom-scrollbar">
