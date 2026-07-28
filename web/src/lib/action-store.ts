@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
-const STORE_PATH = path.join(process.cwd(), 'action_audit_log.json');
+const STORE_PATH = path.join(os.tmpdir(), 'action_audit_log.json');
 
 interface ActionPayload {
     id: string;
