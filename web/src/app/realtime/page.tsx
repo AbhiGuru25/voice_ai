@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Inter } from 'next/font/google';
 import OrbVisualizer from '@/components/OrbVisualizer';
 import DynamicWidgets from '@/components/DynamicWidgets';
+import SettingsModal, { Skill } from '@/components/SettingsModal';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -28,6 +29,8 @@ export default function RealtimeAssistant() {
   const [isDragging, setIsDragging] = useState(false);
   const [emotionState, setEmotionState] = useState('neutral');
   const [sessionId, setSessionId] = useState('');
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   const recognitionRef = useRef<any>(null);
   const simulationIntervalRef = useRef<any>(null);
@@ -41,6 +44,12 @@ export default function RealtimeAssistant() {
       localStorage.setItem('voice_ai_session', sid);
     }
     setSessionId(sid);
+
+    // Load Skills
+    try {
+      const savedSkills = localStorage.getItem('voice_ai_skills');
+      if (savedSkills) setSkills(JSON.parse(savedSkills));
+    } catch (e) {}
 
     // Initialize Web Speech API
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -106,6 +115,13 @@ export default function RealtimeAssistant() {
       stopSystem();
     };
   }, [isSpeaking]);
+
+  // Save skills on change
+  useEffect(() => {
+    if (skills.length > 0) {
+      localStorage.setItem('voice_ai_skills', JSON.stringify(skills));
+    }
+  }, [skills]);
 
   const stopSystem = () => {
     if (recognitionRef.current) {
@@ -197,10 +213,12 @@ export default function RealtimeAssistant() {
       setHistory(prev => {
         const newHistory = [...prev, { role: "user", content: text }];
         
+        const activeSkills = skills.filter(s => s.isActive);
+        
         fetch('/api/assistant', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, history: newHistory, imageBase64 }),
+          body: JSON.stringify({ message: text, history: newHistory, imageBase64, activeSkills }),
         }).then(res => res.json()).then(async data => {
           if (data.uiUpdate) setUiState(data.uiUpdate);
           
@@ -482,6 +500,12 @@ export default function RealtimeAssistant() {
               >
                 {visionMode === "webcam" ? "Stop Camera" : "Enable Camera"}
               </button>
+              <button 
+                onClick={() => setIsSettingsOpen(true)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold text-sm transition-colors border border-slate-700"
+              >
+                Settings
+              </button>
             </div>
             
             {/* Hidden video element used purely for canvas capture, or small preview */}
@@ -573,10 +597,20 @@ export default function RealtimeAssistant() {
       <button 
         className="fixed inset-0 opacity-0 z-0 focus:outline-none" 
         onKeyDown={(e) => {
-          if (e.code === 'Space' && !isListening && !isSpeaking) startListening();
-          else if (e.code === 'Escape') stopSystem();
+          if (e.code === 'Space' && !isListening && !isSpeaking && !isSettingsOpen) startListening();
+          else if (e.code === 'Escape') {
+              stopSystem();
+              setIsSettingsOpen(false);
+          }
         }}
         autoFocus
+      />
+      
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
+        skills={skills} 
+        setSkills={setSkills} 
       />
     </div>
   );
