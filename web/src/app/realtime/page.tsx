@@ -472,7 +472,7 @@ export default function RealtimeAssistant() {
       <div className={`relative z-10 w-full h-full flex flex-col md:flex-row transition-all duration-300 ${isDragging ? 'scale-[0.98] blur-[2px] opacity-50' : ''}`}>
         
         {/* LEFT PANEL: The AI Persona */}
-        <div className="w-full md:w-2/3 h-[60vh] md:h-screen flex flex-col items-center justify-center relative pt-16 md:pt-12 pb-4 md:pb-12 border-b md:border-b-0 md:border-r border-white/5 bg-black/20 backdrop-blur-sm">
+        <div className="w-full md:w-2/3 min-h-[60vh] md:min-h-screen flex flex-col items-center justify-center relative pt-24 md:pt-20 pb-8 md:pb-12 border-b md:border-b-0 md:border-r border-white/5 bg-black/20 backdrop-blur-sm overflow-y-auto custom-scrollbar">
           
           <header className="absolute top-6 left-6 md:top-12 md:left-12 flex items-center gap-3 md:gap-4">
             <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-white/10 flex items-center justify-center border border-white/20">
