@@ -126,8 +126,18 @@ export default function RealtimeAssistant() {
     }
   };
 
-  const startVision = async (mode: "screen" | "webcam") => {
+  const startVision = async (mode: "screen" | "webcam" | "none") => {
     try {
+      if (mode === "none") {
+        if (videoRef.current && videoRef.current.srcObject) {
+           const stream = videoRef.current.srcObject as MediaStream;
+           stream.getTracks().forEach(track => track.stop());
+           videoRef.current.srcObject = null;
+        }
+        setVisionMode("none");
+        return;
+      }
+      
       let stream;
       if (mode === "screen") {
         stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
