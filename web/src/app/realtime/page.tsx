@@ -18,6 +18,8 @@ export default function RealtimeAssistant() {
   const [transcript, setTranscript] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [history, setHistory] = useState<any[]>([]);
+  const [latencyMetrics, setLatencyMetrics] = useState<any>(null);
+  const performanceRef = useRef({ t0: 0, t1: 0, t2: 0, t3: 0 });
   
   const deepgramWsRef = useRef<any>(null);
   const cartesiaWsRef = useRef<any>(null);
@@ -70,7 +72,7 @@ export default function RealtimeAssistant() {
       // Continuous listen
       const connection = deepgram.listen.live({
         model: "nova-2",
-        language: "en-US",
+        language: "hi", // Updated for Hindi/Gujarati testing
         smart_format: true,
         endpointing: 500, // 500ms of silence = end of utterance
       });
@@ -103,6 +105,9 @@ export default function RealtimeAssistant() {
         }
         
         if (transcriptSegment && data.speech_final) {
+          performanceRef.current.t0 = performance.now();
+          performanceRef.current.t3 = 0; // Reset TTFB marker
+          
           setTranscript(prev => prev ? prev + " " + transcriptSegment : transcriptSegment);
           
           // DO NOT stop recording. Keep the mic hot for the next interaction.
@@ -122,6 +127,8 @@ export default function RealtimeAssistant() {
 
   const processUserQuery = async (text: string) => {
     try {
+      performanceRef.current.t1 = performance.now();
+
       // Create a fresh history copy specifically for this call
       setHistory(prev => {
         const newHistory = [...prev, { role: "user", content: text }];
@@ -132,6 +139,8 @@ export default function RealtimeAssistant() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text, history: newHistory }),
         }).then(res => res.json()).then(async data => {
+          performanceRef.current.t2 = performance.now();
+          
           if (data.uiUpdate) setUiState(data.uiUpdate);
           
           if (data.response) {
@@ -179,7 +188,7 @@ export default function RealtimeAssistant() {
       await websocket.connect();
       
       const source = await websocket.send({
-        model_id: "sonic-english",
+        model_id: "sonic-multilingual", // Switched to multilingual model for Hindi
         voice: {
           mode: "id",
           id: "a0e99841-438c-4a64-b679-ae501e7d6091",
@@ -192,6 +201,21 @@ export default function RealtimeAssistant() {
           sample_rate: 44100
         }
       });
+
+      // Hook into raw websocket to catch first audio byte for latency metrics
+      if (websocket.socket) {
+        websocket.socket.addEventListener("message", () => {
+          if (performanceRef.current.t3 === 0) {
+            performanceRef.current.t3 = performance.now();
+            setLatencyMetrics({
+              sttToLlm: (performanceRef.current.t1 - performanceRef.current.t0).toFixed(0),
+              llmResponse: (performanceRef.current.t2 - performanceRef.current.t1).toFixed(0),
+              ttsFirstByte: (performanceRef.current.t3 - performanceRef.current.t2).toFixed(0),
+              totalTTFB: (performanceRef.current.t3 - performanceRef.current.t0).toFixed(0)
+            });
+          }
+        });
+      }
 
       websocket.on("done", () => {
         setIsSpeaking(false);
@@ -235,6 +259,22 @@ export default function RealtimeAssistant() {
               <p className="text-blue-400 text-[10px] md:text-xs font-mono uppercase tracking-widest mt-1">Deepgram + Cartesia</p>
             </div>
           </header>
+
+          {/* Debug Telemetry Overlay */}
+          {latencyMetrics && (
+            <div className="absolute top-4 right-4 md:top-8 md:right-8 bg-black/80 border border-green-500/50 p-4 rounded-xl text-green-400 font-mono text-[10px] md:text-xs z-50 shadow-[0_0_15px_rgba(34,197,94,0.2)] backdrop-blur-md min-w-[250px]">
+              <h3 className="font-bold mb-2 text-green-300 border-b border-green-500/30 pb-1">Latency Telemetry (TTFB)</h3>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <span>VAD (Speech Final):</span> <span className="text-right">T0 (0ms)</span>
+                <span>STT -&gt; LLM Request:</span> <span className="text-right">+{latencyMetrics.sttToLlm}ms</span>
+                <span>LLM Generation (Groq):</span> <span className="text-right">+{latencyMetrics.llmResponse}ms</span>
+                <span>TTS Network (Cartesia):</span> <span className="text-right">+{latencyMetrics.ttsFirstByte}ms</span>
+                <div className="col-span-2 border-t border-green-500/30 mt-1 pt-2 font-bold text-green-300 flex justify-between">
+                    <span>Total TTFB:</span> <span>{latencyMetrics.totalTTFB}ms</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* The Animated Orb */}
           <div className="mt-4 md:mt-20 mb-4 md:mb-16 cursor-pointer z-50 transform scale-[0.6] md:scale-100" onClick={startListening}>
