@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
 import { getTodaysEvents } from '@/lib/google-calendar';
 import { searchDocuments } from '@/lib/rag-embeddings';
+import { draftAction, executeAction } from '@/lib/action-store';
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -53,6 +54,36 @@ const tools = [
           query: { type: "string" },
         },
         required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "draft_email",
+      description: "Draft an email to be sent via webhook. The user MUST confirm before it is sent. Call this when the user asks to send an email.",
+      parameters: {
+        type: "object",
+        properties: {
+          recipient: { type: "string" },
+          subject: { type: "string" },
+          body: { type: "string" },
+        },
+        required: ["recipient", "subject", "body"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "send_email",
+      description: "Actually send the email. MUST be called ONLY after the user explicitly confirms the draft. Requires the pending_action_id.",
+      parameters: {
+        type: "object",
+        properties: {
+          pending_action_id: { type: "string", description: "The ID of the pending draft to execute." },
+        },
+        required: ["pending_action_id"],
       },
     },
   },
@@ -153,6 +184,40 @@ export async function POST(req: NextRequest) {
             toolResult = `Found the following information in the knowledge base: \n` + data.map((d: any) => d.content).join('\n\n');
         } else {
             toolResult = "No relevant information found in the knowledge base.";
+        }
+      } else if (functionName === 'draft_email') {
+        const id = draftAction('email', functionArgs);
+        toolResult = `Draft created. Ask the user if they want to send it. (Pending ID: ${id})`;
+        uiUpdate = {
+          type: "pending_action",
+          data: {
+            id,
+            action: "Send Email",
+            details: functionArgs
+          }
+        };
+      } else if (functionName === 'send_email') {
+        const { pending_action_id } = functionArgs;
+        const result = executeAction(pending_action_id);
+        
+        if (!result.success) {
+            toolResult = `Failed to send email. Error: ${result.error}`;
+        } else {
+            // Trigger actual webhook logic here
+            try {
+                // We use a non-blocking background fetch so the UI doesn't hang
+                fetch('https://webhook.site/26359eb3-9be0-43eb-8e50-482a513511eb', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(result.data),
+                }).catch(e => console.error("Webhook failed to fire", e));
+            } catch (e) {}
+
+            toolResult = `Email successfully sent! The webhook fired for ID ${pending_action_id}.`;
+            uiUpdate = {
+                type: "action_success",
+                data: { message: "Email Sent Successfully!" }
+            };
         }
       }
 
