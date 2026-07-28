@@ -60,7 +60,15 @@ const tools = [
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, history } = await req.json();
+    const { message, history, imageBase64 } = await req.json();
+
+    let userMessageContent: any = message;
+    if (imageBase64) {
+      userMessageContent = [
+        { type: "text", text: message || "Look at this image." },
+        { type: "image_url", image_url: { url: imageBase64 } }
+      ];
+    }
 
     const messages = [
       {
@@ -72,14 +80,17 @@ export async function POST(req: NextRequest) {
         Do NOT use markdown, emojis, or formatting in your response. Just plain spoken text.`,
       },
       ...(history || []),
-      { role: "user" as const, content: message },
+      { role: "user" as const, content: userMessageContent },
     ];
 
+    const modelToUse = imageBase64 ? "llama-3.2-11b-vision-preview" : "llama-3.1-8b-instant";
+
     const response = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
+      model: modelToUse,
       messages,
-      tools: tools,
-      tool_choice: "auto",
+      // Only attach tools if we aren't doing a vision query (some vision models lack tool bindings)
+      tools: imageBase64 ? undefined : tools,
+      tool_choice: imageBase64 ? undefined : "auto",
       max_tokens: 150,
       temperature: 0.5,
     });

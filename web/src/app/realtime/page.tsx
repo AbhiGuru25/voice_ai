@@ -24,9 +24,11 @@ export default function RealtimeAssistant() {
   const [transcript, setTranscript] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [history, setHistory] = useState<any[]>([]);
+  const [visionMode, setVisionMode] = useState<"none" | "screen" | "webcam">("none");
   
   const recognitionRef = useRef<any>(null);
   const simulationIntervalRef = useRef<any>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     // Initialize Web Speech API
@@ -124,15 +126,58 @@ export default function RealtimeAssistant() {
     }
   };
 
+  const startVision = async (mode: "screen" | "webcam") => {
+    try {
+      let stream;
+      if (mode === "screen") {
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+      
+      setVisionMode(mode);
+      
+      // Listen for user manually stopping the stream
+      stream.getVideoTracks()[0].onended = () => {
+        setVisionMode("none");
+        if (videoRef.current) videoRef.current.srcObject = null;
+      };
+      
+    } catch (err) {
+      console.error("Failed to start vision:", err);
+      setVisionMode("none");
+    }
+  };
+
   const processUserQuery = async (text: string) => {
     try {
+      let imageBase64 = null;
+      
+      // Capture a frame if vision is active
+      if (visionMode !== "none" && videoRef.current) {
+        const canvas = document.createElement("canvas");
+        // Downscale slightly for speed and to respect token limits
+        canvas.width = 640; 
+        canvas.height = 480;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+          imageBase64 = canvas.toDataURL("image/jpeg", 0.5);
+        }
+      }
+
       setHistory(prev => {
         const newHistory = [...prev, { role: "user", content: text }];
         
         fetch('/api/assistant', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, history: newHistory }),
+          body: JSON.stringify({ message: text, history: newHistory, imageBase64 }),
         }).then(res => res.json()).then(async data => {
           if (data.uiUpdate) setUiState(data.uiUpdate);
           
@@ -235,8 +280,35 @@ export default function RealtimeAssistant() {
           </div>
 
           {/* The Animated Orb */}
-          <div className="mt-4 md:mt-20 mb-4 md:mb-16 cursor-pointer z-50 transform scale-[0.6] md:scale-100" onClick={startListening}>
+          <div className="mt-4 md:mt-12 mb-4 md:mb-10 cursor-pointer z-50 transform scale-[0.6] md:scale-100" onClick={startListening}>
             <OrbVisualizer isSpeaking={isSpeaking} volumeLevel={volumeLevel} />
+          </div>
+
+          {/* Vision Controls & Video Preview */}
+          <div className="flex flex-col items-center gap-4 mb-8 z-50">
+            <div className="flex gap-4">
+              <button 
+                onClick={() => visionMode === "screen" ? startVision("none") : startVision("screen")}
+                className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${visionMode === "screen" ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.8)]' : 'bg-white/10 text-white/70 hover:bg-white/20'}`}
+              >
+                {visionMode === "screen" ? "Stop Screen Share" : "Share Screen"}
+              </button>
+              <button 
+                onClick={() => visionMode === "webcam" ? startVision("none") : startVision("webcam")}
+                className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${visionMode === "webcam" ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.8)]' : 'bg-white/10 text-white/70 hover:bg-white/20'}`}
+              >
+                {visionMode === "webcam" ? "Stop Camera" : "Enable Camera"}
+              </button>
+            </div>
+            
+            {/* Hidden video element used purely for canvas capture, or small preview */}
+            <video 
+              ref={videoRef} 
+              className={`w-48 h-32 object-cover rounded-xl border border-white/20 shadow-2xl ${visionMode !== "none" ? "opacity-100 block" : "opacity-0 hidden"}`} 
+              autoPlay 
+              playsInline 
+              muted 
+            />
           </div>
 
           {/* Jarvis Chat Interface (Floating Glass Card) */}
