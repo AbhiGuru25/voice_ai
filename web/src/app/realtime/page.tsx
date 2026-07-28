@@ -6,6 +6,8 @@ import { Inter } from 'next/font/google';
 import OrbVisualizer from '@/components/OrbVisualizer';
 import DynamicWidgets from '@/components/DynamicWidgets';
 
+const inter = Inter({ subsets: ['latin'] });
+
 // Type definitions for Web Speech API
 declare global {
   interface Window {
