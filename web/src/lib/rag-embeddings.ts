@@ -12,7 +12,7 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PU
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
 class PipelineSingleton {
-  static task = 'feature-extraction';
+  static task: any = 'feature-extraction';
   static model = 'Xenova/all-MiniLM-L6-v2';
   static instance: any = null;
 
