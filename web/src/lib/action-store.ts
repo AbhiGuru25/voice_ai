@@ -13,13 +13,11 @@ interface ActionPayload {
     executed_at?: number;
 }
 
-// Ensure store exists
-if (!fs.existsSync(STORE_PATH)) {
-    fs.writeFileSync(STORE_PATH, JSON.stringify([]));
-}
-
 function getStore(): ActionPayload[] {
     try {
+        if (!fs.existsSync(STORE_PATH)) {
+            fs.writeFileSync(STORE_PATH, JSON.stringify([]));
+        }
         return JSON.parse(fs.readFileSync(STORE_PATH, 'utf-8'));
     } catch {
         return [];

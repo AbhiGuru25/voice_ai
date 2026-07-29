@@ -1,8 +1,4 @@
-import { pipeline, env } from '@xenova/transformers';
 import { createClient } from '@supabase/supabase-js';
-
-// Skip local model checks, use CDN for serverless environment
-env.allowLocalModels = false;
 
 // Initialize Supabase with service role for bypassing RLS during indexing
 // Fallback to anon key if service role is not provided (which will fail if RLS is strict)
@@ -18,6 +14,9 @@ class PipelineSingleton {
 
   static async getInstance(progress_callback: any = null) {
     if (this.instance === null) {
+      // Dynamic import to prevent ONNX runtime from crashing Vercel Serverless load
+      const { pipeline, env } = await import('@xenova/transformers');
+      env.allowLocalModels = false;
       this.instance = pipeline(this.task, this.model, { progress_callback });
     }
     return this.instance;
