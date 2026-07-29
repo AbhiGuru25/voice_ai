@@ -5,7 +5,7 @@ import { searchDocuments } from '@/lib/rag-embeddings';
 import { draftAction, executeAction } from '@/lib/action-store';
 
 const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
+  apiKey: process.env.GROQ_API_KEY || 'missing_key',
 });
 
 // Define the tools (Agentic Actions) the LLM can use
