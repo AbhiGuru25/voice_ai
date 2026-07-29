@@ -149,7 +149,22 @@ export async function POST(req: NextRequest) {
     });
 
     const responseMessage = response.choices[0].message;
-    const toolCalls = responseMessage.tool_calls;
+    let toolCalls = responseMessage.tool_calls;
+
+    // Fallback parser for models that hallucinate <function=...> XML tags instead of using native tool_calls
+    if (!toolCalls && typeof responseMessage.content === 'string' && responseMessage.content.includes('<function=')) {
+        const match = responseMessage.content.match(/<function=([^>]+)>(.*?)<\/function>/is);
+        if (match) {
+            toolCalls = [{
+                id: 'call_' + Math.random().toString(36).substr(2, 9),
+                type: 'function',
+                function: {
+                    name: match[1].trim(),
+                    arguments: match[2].trim()
+                }
+            }];
+        }
+    }
 
     // Check if the LLM decided to use a tool
     if (toolCalls && toolCalls.length > 0) {
