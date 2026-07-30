@@ -233,7 +233,13 @@ export default function RealtimeAssistant() {
         fetch('/api/assistant', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, history: newHistory, imageBase64, activeSkills }),
+          body: JSON.stringify({ 
+            message: text, 
+            history: newHistory, 
+            imageBase64, 
+            activeSkills,
+            pendingActionId: uiState?.type === 'pending_action' ? uiState.data?.id : null
+          }),
         }).then(res => res.json()).then(async data => {
           if (data.uiUpdate) setUiState(data.uiUpdate);
           
