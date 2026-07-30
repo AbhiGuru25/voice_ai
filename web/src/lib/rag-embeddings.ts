@@ -18,6 +18,9 @@ class PipelineSingleton {
       const { pipeline, env } = await import('@xenova/transformers');
       env.allowLocalModels = false;
       env.cacheDir = '/tmp';
+      if (env.backends && env.backends.onnx && env.backends.onnx.wasm) {
+        env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
+      }
       this.instance = pipeline(this.task, this.model, { progress_callback });
     }
     return this.instance;
