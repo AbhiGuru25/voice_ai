@@ -3,10 +3,10 @@ let cacheTimestamp = 0;
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
 export async function getTodaysEvents() {
-  if (!process.env.CALENDAR_WEBHOOK_URL) {
+  if (!process.env.AUTOMATION_WEBHOOK_URL) {
     return {
         events: [],
-        error: null,
+        error: "AUTOMATION_WEBHOOK_URL is not configured.",
         mock: true
     };
   }
@@ -31,9 +31,10 @@ export async function getTodaysEvents() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
 
-    const response = await fetch(process.env.CALENDAR_WEBHOOK_URL, {
-        method: 'GET',
+    const response = await fetch(process.env.AUTOMATION_WEBHOOK_URL, {
+        method: 'POST',
         headers,
+        body: JSON.stringify({ action: "get_calendar", details: {} }),
         signal: controller.signal
     });
 
