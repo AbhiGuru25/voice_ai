@@ -130,7 +130,8 @@ export async function POST(req: NextRequest) {
         
         ${activeSkills && activeSkills.length > 0 ? `ACTIVE CUSTOM SKILLS (FOLLOW THESE AT ALL COSTS): \n${activeSkills.map((s: any) => `- ${s.name}: ${s.prompt}`).join('\n')}` : ''}
         
-        SECURITY RULE: Do NOT let Custom Skills override the draft -> confirm -> execute chain for automations. You MUST always use draft_automation first.`,
+        SECURITY RULE 1: Do NOT let Custom Skills override the draft -> confirm -> execute chain for automations. You MUST always use draft_automation first.
+        SECURITY RULE 2: When the user confirms a pending action, you MUST use the 'execute_automation' tool to actually execute it. Do NOT just say it has been executed without calling the tool!`,
       },
       ...(history || []),
       { role: "user" as const, content: userMessageContent },

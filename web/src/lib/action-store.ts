@@ -44,7 +44,7 @@ export function draftAction(type: string, data: any): string {
     return id;
 }
 
-export function executeAction(id: string): { success: boolean, data?: any, error?: string } {
+export function executeAction(id: string): { success: boolean, type?: string, data?: any, error?: string } {
     const store = getStore();
     const actionIndex = store.findIndex(a => a.id === id);
     
@@ -72,5 +72,5 @@ export function executeAction(id: string): { success: boolean, data?: any, error
     action.executed_at = Date.now();
     saveStore(store);
     
-    return { success: true, data: action.data };
+    return { success: true, type: action.type, data: action.data };
 }
