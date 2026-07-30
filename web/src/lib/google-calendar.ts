@@ -1,69 +1,74 @@
-import { google } from 'googleapis';
-
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  // Use Vercel URL if in production, else fallback to localhost
-  process.env.VERCEL_URL 
-    ? `https://${process.env.VERCEL_URL}/api/auth/callback/google` 
-    : 'http://localhost:3000/api/auth/callback/google'
-);
-
-// We need the refresh token from env
-// If not present, we will gracefully degrade
-if (process.env.GOOGLE_REFRESH_TOKEN) {
-  oauth2Client.setCredentials({
-    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
-  });
-}
+let cachedEvents: any = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
 export async function getTodaysEvents() {
-  if (!process.env.GOOGLE_REFRESH_TOKEN) {
+  if (!process.env.CALENDAR_WEBHOOK_URL) {
     return {
         events: [],
-        error: "Google Calendar is not authenticated yet. Please authorize first.",
+        error: null,
         mock: true
     };
   }
 
-  try {
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-    
-    // Start of today
-    const timeMin = new Date();
-    timeMin.setHours(0, 0, 0, 0);
-    
-    // End of today
-    const timeMax = new Date();
-    timeMax.setHours(23, 59, 59, 999);
+  // 1. Short-term Memory Cache
+  if (cachedEvents && (Date.now() - cacheTimestamp < CACHE_TTL)) {
+    console.log("Serving calendar events from cache");
+    return { events: cachedEvents, error: null, mock: false };
+  }
 
-    const res = await calendar.events.list({
-      calendarId: 'primary',
-      timeMin: timeMin.toISOString(),
-      timeMax: timeMax.toISOString(),
-      maxResults: 10,
-      singleEvents: true,
-      orderBy: 'startTime',
+  try {
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+    };
+    
+    // 2. Shared Secret Auth
+    if (process.env.N8N_WEBHOOK_SECRET) {
+        headers['Authorization'] = `Bearer ${process.env.N8N_WEBHOOK_SECRET}`;
+    }
+
+    // 3. Graceful Failure (Timeout)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+
+    const response = await fetch(process.env.CALENDAR_WEBHOOK_URL, {
+        method: 'GET',
+        headers,
+        signal: controller.signal
     });
 
-    const events = res.data.items || [];
-    
-    return {
-      events: events.map((e: any) => ({
-        title: e.summary,
-        time: e.start.dateTime || e.start.date,
-        attendees: e.attendees ? e.attendees.map((a: any) => a.email || a.displayName).join(', ') : 'No attendees'
-      })),
-      error: null,
-      mock: false
-    };
+    clearTimeout(timeoutId);
 
+    if (!response.ok) {
+        throw new Error(`n8n webhook returned status ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    let normalizedEvents: any[] = [];
+    if (Array.isArray(data)) {
+        normalizedEvents = data.map(e => ({
+            title: e.summary || "Untitled Event",
+            time: e.start?.dateTime || e.start?.date || "Unknown Time"
+        }));
+    } else if (data && typeof data === 'object') {
+        // If n8n returns a single object instead of an array
+        normalizedEvents = [{
+            title: data.summary || "Untitled Event",
+            time: data.start?.dateTime || data.start?.date || "Unknown Time"
+        }];
+    }
+
+    cachedEvents = normalizedEvents;
+    cacheTimestamp = Date.now();
+
+    return { events: normalizedEvents, error: null, mock: false };
   } catch (error: any) {
-    console.error("Error fetching calendar:", error);
+    console.error("Failed to fetch calendar from n8n:", error);
     return {
-      events: [],
-      error: error.message,
-      mock: true
+        events: [],
+        error: "I couldn't reach your calendar right now to check your schedule. Please try again later.",
+        mock: false
     };
   }
 }

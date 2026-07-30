@@ -193,7 +193,9 @@ export async function POST(req: NextRequest) {
       if (functionName === 'check_calendar') {
         const { events, error, mock } = await getTodaysEvents();
         
-        if (mock) {
+        if (error) {
+            toolResult = error;
+        } else if (mock) {
             toolResult = "You have a Product Sync at 10, lunch with Sarah, and an All-hands meeting at 4.";
             uiUpdate = {
                 type: "calendar_view",
