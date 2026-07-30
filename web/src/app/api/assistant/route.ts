@@ -173,7 +173,18 @@ export async function POST(req: NextRequest) {
     if (toolCalls && toolCalls.length > 0) {
       const toolCall = toolCalls[0];
       const functionName = toolCall.function.name;
-      const functionArgs = JSON.parse(toolCall.function.arguments || "{}");
+      let functionArgs = {};
+      try {
+        // Try parsing as JSON first
+        functionArgs = JSON.parse(toolCall.function.arguments || "{}");
+      } catch (e) {
+        // If it fails, check if it's the python syntax hallucination (e.g. query="foo")
+        const argsString = toolCall.function.arguments || "";
+        const queryMatch = argsString.match(/query=["'](.*?)["']/);
+        if (queryMatch) {
+            functionArgs = { query: queryMatch[1] };
+        }
+      }
 
       let toolResult = "";
       let uiUpdate = null;
