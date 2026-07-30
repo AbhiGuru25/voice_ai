@@ -17,6 +17,7 @@ class PipelineSingleton {
       // Dynamic import to prevent ONNX runtime from crashing Vercel Serverless load
       const { pipeline, env } = await import('@xenova/transformers');
       env.allowLocalModels = false;
+      env.cacheDir = '/tmp';
       this.instance = pipeline(this.task, this.model, { progress_callback });
     }
     return this.instance;
