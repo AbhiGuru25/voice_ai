@@ -26,18 +26,18 @@ class PipelineSingleton {
 
 export async function generateEmbedding(text: string) {
   try {
-    const embedder = await PipelineSingleton.getInstance();
-    const output = await embedder(text, { pooling: 'mean', normalize: true });
-    return Array.from(output.data);
-  } catch (error) {
+    const pipe = await PipelineSingleton.getInstance();
+    const output = await pipe(text, { pooling: 'mean', normalize: true });
+    return { embedding: Array.from(output.data), error: null };
+  } catch (error: any) {
     console.error("Embedding Error:", error);
-    return null;
+    return { embedding: null, error: error.message || String(error) };
   }
 }
 
 export async function addDocument(content: string, metadata: any = {}) {
-  const embedding = await generateEmbedding(content);
-  if (!embedding) return { error: "Failed to generate embedding" };
+  const { embedding, error: embedError } = await generateEmbedding(content);
+  if (!embedding) return { error: `Failed to generate embedding: ${embedError}` };
 
   const { data, error } = await supabase
     .from('documents')
@@ -52,8 +52,8 @@ export async function addDocument(content: string, metadata: any = {}) {
 }
 
 export async function searchDocuments(query: string, match_threshold = 0.5, match_count = 3) {
-  const query_embedding = await generateEmbedding(query);
-  if (!query_embedding) return { error: "Failed to generate embedding" };
+  const { embedding: query_embedding, error: embedError } = await generateEmbedding(query);
+  if (!query_embedding) return { error: `Failed to generate embedding: ${embedError}` };
 
   const { data, error } = await supabase.rpc('match_documents', {
     query_embedding,

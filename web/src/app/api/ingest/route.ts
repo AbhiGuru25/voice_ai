@@ -33,7 +33,10 @@ export async function POST(req: NextRequest) {
                 chunk_index: i,
                 total_chunks: chunks.length
             });
-            if (!error) successCount++;
+            if (error) {
+                return NextResponse.json({ error: `Ingest failed on chunk ${i}: ${JSON.stringify(error)}` }, { status: 500 });
+            }
+            successCount++;
         }
 
         return NextResponse.json({ 
