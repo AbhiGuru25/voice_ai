@@ -4,22 +4,30 @@ import { getCallSession, updateCallSession } from '@/lib/call-session-store';
 
 export async function POST(req: NextRequest) {
   try {
-    const { call_id, transport_type, caller_number, message, client_metadata } = await req.json();
+    // Vapi Custom LLM sends an OpenAI-compatible payload
+    const body = await req.json();
+    const { messages } = body;
 
-    if (!call_id || !message) {
-      return NextResponse.json({ error: "call_id and message are required" }, { status: 400 });
+    if (!messages || messages.length === 0) {
+      return NextResponse.json({ error: "messages array is required" }, { status: 400 });
     }
 
-    // 1. Hydrate Session History and State
+    // Extract the latest user message
+    const lastMessageObj = messages[messages.length - 1];
+    const message = lastMessageObj.content;
+
+    // Vapi might pass headers we can use for session tracking, but fallback to a default for testing
+    const call_id = req.headers.get('x-vapi-call-id') || req.headers.get('x-call-id') || 'default-vapi-call';
+
+    // 1. Hydrate Session State (we only need this to track pendingActionId across turns)
     const session = getCallSession(call_id);
-    const activeSkills = client_metadata?.active_skills || [];
 
     // 2. Run Intelligence Core
+    // We ignore Vapi's history array because Vapi sends the entire transcript, but we only want to 
+    // run the newest message through our core (which maintains its own truncated history in the session store)
     const { response, actionDrafted, toolCallsExecuted } = await runAssistantCore({
       message,
       history: session.history,
-      activeSkills,
-      pendingActionId: session.pendingActionId,
       isTelephony: true // Disables emotion tags which break TTS
     });
 
@@ -33,23 +41,39 @@ export async function POST(req: NextRequest) {
         call_id, 
         newHistoryItems, 
         actionDrafted, 
-        // If an automation was successfully executed, we clear the pending action lock
         toolCallsExecuted.includes('execute_automation')
     );
 
-    // 4. Return Standardized Output
+    // 4. Return OpenAI-Compatible Response (Required by Vapi)
     return NextResponse.json({
-      response,
-      tool_calls_executed: toolCallsExecuted,
-      action_drafted: actionDrafted,
-      end_call: false
+      id: `chatcmpl-${Date.now()}`,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: "voice-ai-brain",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: response
+          },
+          finish_reason: "stop"
+        }
+      ]
     });
 
   } catch (error) {
     console.error("Error in Telephony Adapter API:", error);
-    return NextResponse.json({ 
-        response: "I'm sorry, I encountered a system error on my end.", 
-        end_call: false 
-    }, { status: 500 });
+    // Return an OpenAI-compatible error response so Vapi doesn't crash silently
+    return NextResponse.json({
+        choices: [
+            {
+                message: {
+                    role: "assistant",
+                    content: "I'm sorry, I encountered a system error on my end."
+                }
+            }
+        ]
+    });
   }
 }
