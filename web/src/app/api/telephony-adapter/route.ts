@@ -3,14 +3,17 @@ import { runAssistantCore } from '@/lib/assistant-core';
 import { getCallSession, updateCallSession } from '@/lib/call-session-store';
 
 export async function POST(req: NextRequest) {
+  let stream = false;
   try {
     const body = await req.json();
-    const { messages, stream } = body;
+    stream = body.stream;
+    const { messages } = body;
 
     if (!messages || messages.length === 0) {
       return NextResponse.json({ error: "messages array is required" }, { status: 400 });
     }
 
+    // Extract the latest message
     const lastMessageObj = messages[messages.length - 1];
     const message = lastMessageObj.content;
 
@@ -38,78 +41,59 @@ export async function POST(req: NextRequest) {
     const created = Math.floor(Date.now() / 1000);
     const id = `chatcmpl-${Date.now()}`;
 
-    // If Vapi requests a stream, we MUST return a Server-Sent Events stream.
     if (stream) {
       const encoder = new TextEncoder();
       const sseStream = new ReadableStream({
         start(controller) {
-          // Send the single chunk containing the full response
           const chunk = {
-            id,
-            object: "chat.completion.chunk",
-            created,
-            model: "voice-ai-brain",
-            choices: [
-              {
-                index: 0,
-                delta: { content: response },
-                finish_reason: null
-              }
-            ]
+            id, object: "chat.completion.chunk", created, model: "voice-ai-brain",
+            choices: [{ index: 0, delta: { content: response }, finish_reason: null }]
           };
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
           
-          // Send the stop chunk
           const stopChunk = {
-            id,
-            object: "chat.completion.chunk",
-            created,
-            model: "voice-ai-brain",
-            choices: [
-              {
-                index: 0,
-                delta: {},
-                finish_reason: "stop"
-              }
-            ]
+            id, object: "chat.completion.chunk", created, model: "voice-ai-brain",
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
           };
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(stopChunk)}\n\n`));
           controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
           controller.close();
         }
       });
-
       return new NextResponse(sseStream, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-        },
+        headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' },
       });
     }
 
-    // Otherwise, return standard JSON
     return NextResponse.json({
-      id,
-      object: "chat.completion",
-      created,
-      model: "voice-ai-brain",
-      choices: [
-        {
-          index: 0,
-          message: {
-            role: "assistant",
-            content: response
-          },
-          finish_reason: "stop"
-        }
-      ]
+      id, object: "chat.completion", created, model: "voice-ai-brain",
+      choices: [{ index: 0, message: { role: "assistant", content: response }, finish_reason: "stop" }]
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error in Telephony Adapter API:", error);
+    const errorMsg = "System error: " + (error.message || "unknown");
+    
+    if (stream) {
+        const encoder = new TextEncoder();
+        const sseStream = new ReadableStream({
+            start(controller) {
+                const chunk = {
+                    id: "error", object: "chat.completion.chunk", created: 0, model: "voice-ai-brain",
+                    choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }]
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+                controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+                controller.close();
+            }
+        });
+        return new NextResponse(sseStream, {
+            headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' },
+        });
+    }
+
     return NextResponse.json({
-        choices: [{ message: { role: "assistant", content: "I'm sorry, I encountered a system error on my end." } }]
+        choices: [{ message: { role: "assistant", content: errorMsg } }]
     });
   }
 }
