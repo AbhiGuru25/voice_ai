@@ -4,34 +4,25 @@ import { getCallSession, updateCallSession } from '@/lib/call-session-store';
 
 export async function POST(req: NextRequest) {
   try {
-    // Vapi Custom LLM sends an OpenAI-compatible payload
     const body = await req.json();
-    const { messages } = body;
+    const { messages, stream } = body;
 
     if (!messages || messages.length === 0) {
       return NextResponse.json({ error: "messages array is required" }, { status: 400 });
     }
 
-    // Extract the latest user message
     const lastMessageObj = messages[messages.length - 1];
     const message = lastMessageObj.content;
 
-    // Vapi might pass headers we can use for session tracking, but fallback to a default for testing
     const call_id = req.headers.get('x-vapi-call-id') || req.headers.get('x-call-id') || 'default-vapi-call';
-
-    // 1. Hydrate Session State (we only need this to track pendingActionId across turns)
     const session = getCallSession(call_id);
 
-    // 2. Run Intelligence Core
-    // We ignore Vapi's history array because Vapi sends the entire transcript, but we only want to 
-    // run the newest message through our core (which maintains its own truncated history in the session store)
     const { response, actionDrafted, toolCallsExecuted } = await runAssistantCore({
       message,
       history: session.history,
-      isTelephony: true // Disables emotion tags which break TTS
+      isTelephony: true
     });
 
-    // 3. Update Session History
     const newHistoryItems = [
       { role: "user", content: message },
       { role: "assistant", content: response }
@@ -44,11 +35,64 @@ export async function POST(req: NextRequest) {
         toolCallsExecuted.includes('execute_automation')
     );
 
-    // 4. Return OpenAI-Compatible Response (Required by Vapi)
+    const created = Math.floor(Date.now() / 1000);
+    const id = `chatcmpl-${Date.now()}`;
+
+    // If Vapi requests a stream, we MUST return a Server-Sent Events stream.
+    if (stream) {
+      const encoder = new TextEncoder();
+      const sseStream = new ReadableStream({
+        start(controller) {
+          // Send the single chunk containing the full response
+          const chunk = {
+            id,
+            object: "chat.completion.chunk",
+            created,
+            model: "voice-ai-brain",
+            choices: [
+              {
+                index: 0,
+                delta: { content: response },
+                finish_reason: null
+              }
+            ]
+          };
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+          
+          // Send the stop chunk
+          const stopChunk = {
+            id,
+            object: "chat.completion.chunk",
+            created,
+            model: "voice-ai-brain",
+            choices: [
+              {
+                index: 0,
+                delta: {},
+                finish_reason: "stop"
+              }
+            ]
+          };
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(stopChunk)}\n\n`));
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+          controller.close();
+        }
+      });
+
+      return new NextResponse(sseStream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
+      });
+    }
+
+    // Otherwise, return standard JSON
     return NextResponse.json({
-      id: `chatcmpl-${Date.now()}`,
+      id,
       object: "chat.completion",
-      created: Math.floor(Date.now() / 1000),
+      created,
       model: "voice-ai-brain",
       choices: [
         {
@@ -64,16 +108,8 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     console.error("Error in Telephony Adapter API:", error);
-    // Return an OpenAI-compatible error response so Vapi doesn't crash silently
     return NextResponse.json({
-        choices: [
-            {
-                message: {
-                    role: "assistant",
-                    content: "I'm sorry, I encountered a system error on my end."
-                }
-            }
-        ]
+        choices: [{ message: { role: "assistant", content: "I'm sorry, I encountered a system error on my end." } }]
     });
   }
 }
